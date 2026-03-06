@@ -1,0 +1,13 @@
+[package]
+name = "sf_formula_lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+paste = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_repr = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["chrono"] }
