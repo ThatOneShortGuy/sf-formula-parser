@@ -73,3 +73,38 @@ Then run `:Lazy sync`.
 
 1. Open a `.sff` file.
 2. Run `:LspInfo` and confirm `sf-formula-lsp` is attached.
+
+## LSP capabilities
+
+Current server features:
+
+[x] Text document sync (`didOpen` + `didChange`, full document sync, parsing)
+[x] Syntax diagnostics published on open and change
+[x] Function-name completion (`textDocument/completion`)
+[x] Completion docs for supported Salesforce functions
+
+Current scope (not implemented yet):
+
+[ ] Hover
+[ ] Go to definition/references
+[ ] Rename
+[ ] Code actions
+[ ] Formatting
+[ ] Semantic tokens
+
+## Run the parser on a file
+
+From the repository root, run:
+
+```sh
+cargo run -p sf_formula_parser -- path/to/formula.sff
+```
+
+The parser prints `ok: expression is valid` when the file is valid. If invalid, it prints a diagnostic snippet and exits with a non-zero status.
+
+You can also build and run the binary directly:
+
+```sh
+cargo build -p sf_formula_parser --release
+./target/release/sf_formula_parser path/to/formula.sff
+```
