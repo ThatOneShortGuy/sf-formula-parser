@@ -31,9 +31,11 @@ hi def link sffString String
 syn region sffComment start="/\*" end="\*/" " contains=@Spell
 hi def link sffComment Comment
 
-" --- Function names (simple heuristic) ---
-" Highlights an identifier right after 'fn'
-syn match sffFunction "\v<(fn)\s+[A-Za-z_]\w*"
+" --- Function names ---
+" Match known Salesforce formula functions when used as calls.
+syn case ignore
+syn match sffFunction '\v<(abs|addmonths|and|begins|blankvalue|br|case|casesafeid|ceiling|contains|currencyrate|date|datevalue|datetimevalue|day|distance|exp|find|floor|geolocation|getrecordids|getsessionid|hour|htmlencode|hyperlink|if|image|imageproxyurl|include|includes|isblank|ischanged|isclone|isnew|isnull|isnumber|ispickval|jsencode|jsinhtmlencode|junctionidlist|left|len|linkto|ln|log|lower|lpad|max|mceiling|mfloor|mid|millisecond|min|minute|mod|month|not|now|nullvalue|or|parentgroupval|predict|prevgroupval|priorvalue|regex|requirescript|reverse|right|round|rpad|second|sqrt|substitute|text|timenow|timevalue|today|trim|upper|urlencode|urlfor|value|vlookup|weekday|year)>\ze\s*\('
+syn case match
 hi def link sffFunction Function
 
 " --- Delimeter ---
