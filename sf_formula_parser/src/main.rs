@@ -1,6 +1,6 @@
 use std::{env, fs, process::ExitCode};
 
-use sf_formula_parser::validate_expression_detailed;
+use sf_formula_parser::validate_expression_detailed_with_source;
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -26,7 +26,7 @@ fn main() -> ExitCode {
         }
     };
 
-    match validate_expression_detailed(&source) {
+    match validate_expression_detailed_with_source(&source, &path) {
         Ok(()) => {
             println!("ok: expression is valid");
             ExitCode::SUCCESS

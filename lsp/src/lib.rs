@@ -4,7 +4,7 @@ use std::io::BufRead;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use sf_formula_parser::{ValidationError, validate_expression_detailed};
+use sf_formula_parser::{ValidationError, validate_expression_detailed_with_source};
 use tracing::{debug, warn};
 
 use crate::structs::{
@@ -79,7 +79,8 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
             let params = serde_json::from_value::<DidOpenTextDocumentParams>(notification.params)
                 .context("failed to parse didOpen params")?;
 
-            let diagnostics = build_syntax_diagnostics(&params.text_document.text);
+            let diagnostics =
+                build_syntax_diagnostics(&params.text_document.text, &params.text_document.uri);
 
             Ok(vec![publish_diagnostics_message(
                 params.text_document.uri,
@@ -96,7 +97,8 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
                 .last()
                 .context("didChange had no content changes")?;
 
-            let diagnostics = build_syntax_diagnostics(&latest_change.text);
+            let diagnostics =
+                build_syntax_diagnostics(&latest_change.text, &params.text_document.uri);
 
             Ok(vec![publish_diagnostics_message(
                 params.text_document.uri,
@@ -108,8 +110,8 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
     }
 }
 
-fn build_syntax_diagnostics(text: &str) -> Vec<Diagnostic> {
-    match validate_expression_detailed(text) {
+fn build_syntax_diagnostics(text: &str, source_name: &str) -> Vec<Diagnostic> {
+    match validate_expression_detailed_with_source(text, source_name) {
         Ok(()) => Vec::new(),
         Err(err) => vec![Diagnostic {
             range: parser_error_range(&err),

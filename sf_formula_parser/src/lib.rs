@@ -49,6 +49,7 @@ fn offset_to_position(input: &str, offset: usize) -> (usize, usize) {
 
 fn render_parse_error<'s>(
     input: &'s str,
+    source_name: &str,
     err: ParseError<LocatingSlice<&'s str>, ContextError>,
 ) -> ValidationError {
     let message = {
@@ -72,7 +73,7 @@ fn render_parse_error<'s>(
         .primary_title("invalid formula expression")
         .element(
             Snippet::source(input)
-                .path("expression")
+                .path(source_name)
                 .line_start(1)
                 .annotation(
                     AnnotationKind::Primary
@@ -95,10 +96,17 @@ fn render_parse_error<'s>(
 }
 
 pub fn validate_expression_detailed(input: &str) -> Result<(), ValidationError> {
+    validate_expression_detailed_with_source(input, "expression")
+}
+
+pub fn validate_expression_detailed_with_source(
+    input: &str,
+    source_name: &str,
+) -> Result<(), ValidationError> {
     parse::expression::parse_expression
         .parse(LocatingSlice::new(input))
         .map(|_| ())
-        .map_err(|err| render_parse_error(input, err))
+        .map_err(|err| render_parse_error(input, source_name, err))
 }
 
 pub fn validate_expression(input: &str) -> Result<(), String> {
