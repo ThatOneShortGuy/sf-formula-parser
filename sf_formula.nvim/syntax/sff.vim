@@ -8,9 +8,10 @@ syn keyword sffBoolean True False
 hi def link sffBoolean Boolean
 
 " --- Numbers ---
-syn match sffNumber '\v\d+(\.\d+)?' contains=sffNumberDot
+syn match sffNumber '\v\d+(\.\d*)?' contains=sffNumberDot
 syn match sffNumberDot '\.' contained
 hi def link sffNumber Number
+hi def link sffNumberDot Number
 
 " --- Operators ---
 syn match sffOperator '\(==\|!=\|<>\|<=\|>=\|&&\||||\)'
@@ -18,8 +19,8 @@ syn match sffOperator "[-^*/+=<>&]"
 hi def link sffOperator Operator
 
 " --- Identifier ---
-syn match sffIdent '\([A-Za-z][A-Za-z0-9_]*\)'
-hi def link sffIdent Ident
+syn match sffKeyword '\([A-Za-z][A-Za-z0-9_]*\)'
+hi def link sffKeyword Keyword
 
 " --- Strings ---
 " Double-quoted strings with escapes
