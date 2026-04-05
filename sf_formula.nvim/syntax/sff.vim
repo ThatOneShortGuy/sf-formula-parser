@@ -28,6 +28,14 @@ hi def link sffOperator Operator
 syn match sffKeyword '\([A-Za-z][A-Za-z0-9_]*\)'
 hi def link sffKeyword Keyword
 
+" --- Field references ---
+" Highlight dotted references (Account.Owner.Name) and common custom-field names.
+syn match sffFieldSeparator '\.' contained
+syn match sffFieldReference '\v<[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+>' contains=sffFieldSeparator
+syn match sffFieldReference '\v<[A-Za-z][A-Za-z0-9_]*__[cr]*>'
+hi def link sffFieldReference Identifier
+hi def link sffFieldSeparator Delimiter
+
 " --- Strings ---
 " Double-quoted strings with escapes
 syn region sffString start=+"+ skip=+""+ end=+"+
@@ -52,6 +60,6 @@ hi def link sffDelimiter Delimiter
 syn keyword sffTodo TODO FIXME XXX contained
 hi def link sffTodo Todo
 " Include it inside comments:
-syn region sffComment start="/\*" end="\*/" contains=mylangTodo
+syn region sffComment start="/\*" end="\*/" contains=sffTodo
 
 let b:current_syntax = "sff"
