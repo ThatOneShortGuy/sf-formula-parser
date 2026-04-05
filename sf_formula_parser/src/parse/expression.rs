@@ -198,4 +198,21 @@ mod tests {
 
         assert!(parsed.is_err());
     }
+
+    #[test]
+    fn test_paren_expression() {
+        let test_str =
+            LocatingSlice::new("SBQQ__Quote__r.Exterior_Color_All__c != (Exterior_Color__c)");
+
+        assert_eq!(
+            parse_expression.parse(test_str).unwrap().0,
+            Expression::binary_expr(BinaryExpr(
+                Expression::field_ref(
+                    FieldReference::new("SBQQ__Quote__r").with_next("Exterior_Color_All__c")
+                ),
+                Operator::NotEqual,
+                Expression::field_ref(FieldReference::new("Exterior_Color__c")),
+            ))
+        );
+    }
 }
