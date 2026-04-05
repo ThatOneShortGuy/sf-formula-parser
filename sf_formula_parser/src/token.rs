@@ -72,7 +72,7 @@ impl<'s, T: Into<&'s str>> From<T> for FieldReference<'s> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FunctionName {
     /// Calculates the absolute value of a number. The absolute value of a number is the number without its positive or negative sign.
     ABS,
@@ -424,6 +424,64 @@ impl FunctionName {
             Self::YEAR => "YEAR",
         }
     }
+
+    pub fn description(self) -> Option<&'static str> {
+        FUNCTION_DESCRIPTIONS.get(self.as_str()).map(String::as_str)
+    }
+}
+
+static FUNCTION_DESCRIPTIONS: LazyLock<HashMap<String, String>> =
+    LazyLock::new(|| parse_function_descriptions(include_str!("token.rs")));
+
+fn parse_function_descriptions(source: &str) -> HashMap<String, String> {
+    let mut descriptions = HashMap::new();
+    let mut in_function_enum = false;
+    let mut function_enum_depth = 0usize;
+    let mut current_doc_lines: Vec<String> = Vec::new();
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        if !in_function_enum {
+            if trimmed == "pub enum FunctionName {" {
+                in_function_enum = true;
+                function_enum_depth = 1;
+            }
+            continue;
+        }
+
+        function_enum_depth += trimmed.chars().filter(|ch| *ch == '{').count();
+        function_enum_depth = function_enum_depth.saturating_sub(trimmed.matches('}').count());
+
+        if function_enum_depth == 0 {
+            break;
+        }
+
+        if let Some(doc_line) = trimmed.strip_prefix("/// ") {
+            current_doc_lines.push(doc_line.to_string());
+            continue;
+        }
+
+        if let Some(variant_name) = trimmed.strip_suffix(',') {
+            if !variant_name.is_empty()
+                && variant_name
+                    .chars()
+                    .all(|ch| ch.is_ascii_uppercase() || ch == '_')
+                && !current_doc_lines.is_empty()
+            {
+                descriptions.insert(variant_name.to_string(), current_doc_lines.join(" "));
+            }
+
+            current_doc_lines.clear();
+            continue;
+        }
+
+        if !trimmed.is_empty() {
+            current_doc_lines.clear();
+        }
+    }
+
+    descriptions
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -529,3 +587,18 @@ impl<'a> Expression<'a> {
         Self::UnaryExpr(Box::new(b.into()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::FunctionName;
+
+    #[test]
+    fn test_function_name_descriptions_are_available() {
+        let description = FunctionName::ROUND
+            .description()
+            .expect("ROUND should have a description");
+
+        assert!(description.contains("nearest number"));
+    }
+}
+use std::{collections::HashMap, sync::LazyLock};

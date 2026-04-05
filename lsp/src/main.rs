@@ -39,7 +39,7 @@ fn real_main() -> Result<()> {
 
                 for notification in notifications {
                     stdout
-                        .write(notification.as_bytes())
+                        .write_all(notification.as_bytes())
                         .context("Failed to write notification out")?;
                 }
 
@@ -52,7 +52,7 @@ fn real_main() -> Result<()> {
         debug!("response: {response:?}");
 
         stdout
-            .write(response.as_bytes())
+            .write_all(response.as_bytes())
             .context("Failed to write response out")?;
         stdout.flush()?;
         info!("responded successfully");

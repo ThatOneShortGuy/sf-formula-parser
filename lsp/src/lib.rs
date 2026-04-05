@@ -27,22 +27,17 @@ static OPEN_DOCUMENTS: LazyLock<Mutex<HashMap<String, String>>> =
 
 #[derive(Debug)]
 pub struct Header<Body> {
-    pub content_len: usize,
     pub body: Body,
 }
 
 impl<Body: Serialize> Header<Body> {
     pub fn new(obj: Body) -> Result<Self> {
-        let s = serde_json::to_string(&obj)?;
-        Ok(Self {
-            content_len: s.len(),
-            body: obj,
-        })
+        Ok(Self { body: obj })
     }
 
     pub fn to_string(&self) -> Result<String> {
         let s = serde_json::to_string(&self.body)?;
-        Ok(format!("Content-Length: {}\r\n\r\n{s}", self.content_len))
+        Ok(format!("Content-Length: {}\r\n\r\n{s}", s.len()))
     }
 }
 
@@ -244,8 +239,7 @@ fn suggest_function_completions(params: &CompletionParams) -> Vec<CompletionItem
     FunctionName::ALL
         .iter()
         .copied()
-        .map(FunctionName::as_str)
-        .filter(|name| name.starts_with(&prefix_upper))
+        .filter(|function_name| function_name.as_str().starts_with(&prefix_upper))
         .map(CompletionItem::function)
         .collect()
 }
@@ -345,15 +339,21 @@ struct CompletionItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    documentation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     insert_text: Option<String>,
 }
 
 impl CompletionItem {
-    fn function(name: &str) -> Self {
+    fn function(function_name: FunctionName) -> Self {
+        let name = function_name.as_str();
+        let description = function_name.description().map(ToString::to_string);
+
         Self {
             label: name.to_string(),
             kind: 3,
-            detail: Some("Salesforce function".to_string()),
+            detail: None,
+            documentation: description,
             insert_text: Some(format!("{name}()")),
         }
     }
@@ -420,5 +420,31 @@ mod tests {
 
         let completions = suggest_function_completions(&params);
         assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_completion_includes_salesforce_description() {
+        let uri = "file:///completion-description-test.sff".to_string();
+        cache_document(uri.clone(), "RO".to_string());
+
+        let params = CompletionParams {
+            text_document: crate::structs::request::TextDocumentIdentifier { uri },
+            position: crate::structs::request::Position {
+                line: 0,
+                character: 2,
+            },
+        };
+
+        let round = suggest_function_completions(&params)
+            .into_iter()
+            .find(|item| item.label == "ROUND")
+            .expect("ROUND completion should be present");
+
+        assert!(
+            round
+                .documentation
+                .as_deref()
+                .is_some_and(|documentation| documentation.contains("nearest number"))
+        );
     }
 }
