@@ -51,7 +51,14 @@ fn render_parse_error<'s>(
     input: &'s str,
     err: ParseError<LocatingSlice<&'s str>, ContextError>,
 ) -> ValidationError {
-    let message = err.to_string();
+    let message = {
+        let inner = err.inner().to_string();
+        if inner.trim().is_empty() {
+            "unexpected token while parsing expression".to_string()
+        } else {
+            inner
+        }
+    };
     let offset = err.offset();
     let end_offset = input
         .get(offset..)
@@ -67,7 +74,6 @@ fn render_parse_error<'s>(
             Snippet::source(input)
                 .path("expression")
                 .line_start(1)
-                .fold(false)
                 .annotation(
                     AnnotationKind::Primary
                         .span(offset..end_offset)
