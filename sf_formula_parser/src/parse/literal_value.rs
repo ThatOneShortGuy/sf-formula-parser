@@ -40,8 +40,8 @@ pub fn parse_string<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<&'s s
             repeat::<_, _, (), _, _>(
                 0..,
                 alt((
-                    "\"\"".void(),
-                    any.verify(|c| *c != '"').void(), // any non-quote char
+                    ("\\", any).void(),
+                    any.verify(|c| *c != '"' && *c != '\\').void(), // any non-quote/non-backslash char
                 )),
             )
             .take(),
@@ -120,8 +120,18 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let test_str = LocatingSlice::new("\"he said, \"\"hi\"\"\"");
+        let test_str = LocatingSlice::new("\"he said, \\\"hi\\\"\"");
 
-        assert_eq!(parse_string.parse(test_str).unwrap(), "he said, \"\"hi\"\"");
+        assert_eq!(parse_string.parse(test_str).unwrap(), "he said, \\\"hi\\\"");
+
+        let test_str = LocatingSlice::new("\"path \\\\tmp\"");
+
+        assert_eq!(parse_string.parse(test_str).unwrap(), "path \\\\tmp");
+
+        let test_str = LocatingSlice::new("\"invalid \\");
+        assert!(parse_string.parse(test_str).is_err());
+
+        let test_str = LocatingSlice::new("\"he said, \"\"hi\"\"\"");
+        assert!(parse_string.parse(test_str).is_err());
     }
 }
