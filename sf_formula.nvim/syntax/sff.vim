@@ -4,7 +4,7 @@ if exists("b:current_syntax")
 endif
 
 " --- Boolean literals ---
-syn keyword sffBoolean True False
+syn keyword sffBoolean True False TRUE FALSE
 hi def link sffBoolean Boolean
 
 " --- Null literal ---
@@ -38,8 +38,10 @@ hi def link sffFieldSeparator Delimiter
 
 " --- Strings ---
 " Double-quoted strings with escapes
-syn region sffString start=+"+ skip=+""+ end=+"+
+syn match sffStringEscape +\v\\.+ contained
+syn region sffString start=+"+ skip=+\v\\.+ end=+"+ contains=sffStringEscape
 hi def link sffString String
+hi def link sffStringEscape SpecialChar
 
 " --- Block comments ---
 syn region sffComment start="/\*" end="\*/" " contains=@Spell
