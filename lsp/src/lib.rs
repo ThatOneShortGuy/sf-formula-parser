@@ -1,20 +1,29 @@
 pub mod logging;
 pub mod structs;
-use std::io::BufRead;
+use std::{
+    collections::HashMap,
+    io::BufRead,
+    sync::{LazyLock, Mutex},
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use sf_formula_parser::{ValidationError, validate_expression_detailed_with_source};
+use sf_formula_parser::{
+    ValidationError, token::FunctionName, validate_expression_detailed_with_source,
+};
 use tracing::{debug, warn};
 
 use crate::structs::{
     initialize::{InitializeResult, ServerInfo},
     request::{
-        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, NotificationMessage,
-        RequestMessage, RequestMethod, ResponseError, ResponsePayload,
+        CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
+        NotificationMessage, RequestMessage, RequestMethod, ResponseError, ResponsePayload,
     },
     server_capabilities::ServerCapabilities,
 };
+
+static OPEN_DOCUMENTS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug)]
 pub struct Header<Body> {
@@ -79,6 +88,11 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
             let params = serde_json::from_value::<DidOpenTextDocumentParams>(notification.params)
                 .context("failed to parse didOpen params")?;
 
+            cache_document(
+                params.text_document.uri.clone(),
+                params.text_document.text.clone(),
+            );
+
             let diagnostics =
                 build_syntax_diagnostics(&params.text_document.text, &params.text_document.uri);
 
@@ -99,6 +113,8 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
 
             let diagnostics =
                 build_syntax_diagnostics(&latest_change.text, &params.text_document.uri);
+
+            cache_document(params.text_document.uri.clone(), latest_change.text.clone());
 
             Ok(vec![publish_diagnostics_message(
                 params.text_document.uri,
@@ -158,10 +174,19 @@ pub fn handle_request(request: RequestMessage) -> Result<String> {
         RequestMethod::Initialize {
             method: _method,
             params: _params,
-        } => request.reply_with(ResponsePayload::success(InitializeResult {
-            capabilities: ServerCapabilities::default(),
-            server_info: Some(ServerInfo::default()),
-        })),
+        } => request.reply_with(ResponsePayload::success(serde_json::to_value(
+            InitializeResult {
+                capabilities: ServerCapabilities::default(),
+                server_info: Some(ServerInfo::default()),
+            },
+        )?)),
+
+        RequestMethod::Completion {
+            method: _method,
+            params,
+        } => request.reply_with(ResponsePayload::success(serde_json::to_value(
+            suggest_function_completions(params),
+        )?)),
 
         RequestMethod::Unknown { method, params } => {
             let message = format!("Got unknown request method: `{method}` with params: {params:?}");
@@ -179,6 +204,98 @@ pub fn handle_request(request: RequestMessage) -> Result<String> {
         .context("failed to serialize message")?;
 
     Ok(response)
+}
+
+fn cache_document(uri: String, text: String) {
+    match OPEN_DOCUMENTS.lock() {
+        Ok(mut docs) => {
+            docs.insert(uri, text);
+        }
+        Err(err) => {
+            warn!("failed to cache document contents: {err}");
+        }
+    }
+}
+
+fn suggest_function_completions(params: &CompletionParams) -> Vec<CompletionItem> {
+    let doc = match OPEN_DOCUMENTS.lock() {
+        Ok(docs) => docs.get(&params.text_document.uri).cloned(),
+        Err(err) => {
+            warn!("failed to access open document cache: {err}");
+            None
+        }
+    };
+
+    let Some(doc) = doc else {
+        return Vec::new();
+    };
+
+    let Some(offset) = offset_for_position(&doc, params.position.line, params.position.character)
+    else {
+        return Vec::new();
+    };
+
+    let (prefix, prefix_start) = extract_identifier_prefix(&doc, offset);
+    if !is_function_context(&doc, prefix_start) {
+        return Vec::new();
+    }
+
+    let prefix_upper = prefix.to_ascii_uppercase();
+    FunctionName::ALL
+        .iter()
+        .copied()
+        .map(FunctionName::as_str)
+        .filter(|name| name.starts_with(&prefix_upper))
+        .map(CompletionItem::function)
+        .collect()
+}
+
+fn offset_for_position(text: &str, line: usize, character: usize) -> Option<usize> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let current_line = *lines.get(line)?;
+
+    let mut offset = 0;
+    for previous_line in lines.iter().take(line) {
+        offset += previous_line.len() + 1;
+    }
+
+    Some(offset + character.min(current_line.len()))
+}
+
+fn extract_identifier_prefix(text: &str, cursor_offset: usize) -> (&str, usize) {
+    let end = cursor_offset.min(text.len());
+    let mut start = end;
+    let bytes = text.as_bytes();
+
+    while start > 0 {
+        let b = bytes[start - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            start -= 1;
+            continue;
+        }
+
+        break;
+    }
+
+    (&text[start..end], start)
+}
+
+fn is_function_context(text: &str, ident_start: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut idx = ident_start.min(bytes.len());
+
+    while idx > 0 && bytes[idx - 1].is_ascii_whitespace() {
+        idx -= 1;
+    }
+
+    if idx == 0 {
+        return true;
+    }
+
+    matches!(
+        bytes[idx - 1],
+        b'(' | b',' | b'=' | b'+' | b'-' | b'*' | b'/' | b'&' | b'|' | b'!' | b'<' | b'>' | b'^'
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +337,28 @@ struct Position {
     character: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletionItem {
+    label: String,
+    kind: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    insert_text: Option<String>,
+}
+
+impl CompletionItem {
+    fn function(name: &str) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: 3,
+            detail: Some("Salesforce function".to_string()),
+            insert_text: Some(format!("{name}()")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
@@ -247,5 +386,39 @@ mod tests {
         let body = serde_json::from_str::<TestPayload>(&body).unwrap();
 
         assert_eq!(body, TestPayload { testing: true });
+    }
+
+    #[test]
+    fn test_completion_suggests_function_names_for_prefix() {
+        let uri = "file:///completion-test.sff".to_string();
+        cache_document(uri.clone(), "RO".to_string());
+
+        let params = CompletionParams {
+            text_document: crate::structs::request::TextDocumentIdentifier { uri },
+            position: crate::structs::request::Position {
+                line: 0,
+                character: 2,
+            },
+        };
+
+        let completions = suggest_function_completions(&params);
+        assert!(completions.iter().any(|item| item.label == "ROUND"));
+    }
+
+    #[test]
+    fn test_completion_does_not_suggest_after_field_separator() {
+        let uri = "file:///completion-field-test.sff".to_string();
+        cache_document(uri.clone(), "Account.NA".to_string());
+
+        let params = CompletionParams {
+            text_document: crate::structs::request::TextDocumentIdentifier { uri },
+            position: crate::structs::request::Position {
+                line: 0,
+                character: 10,
+            },
+        };
+
+        let completions = suggest_function_completions(&params);
+        assert!(completions.is_empty());
     }
 }

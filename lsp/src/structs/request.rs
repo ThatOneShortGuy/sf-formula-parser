@@ -111,6 +111,25 @@ macro_rules! lsp_request_methods {
 
 lsp_request_methods! {
     Initialize => "initialize"(InitializeParams),
+    Completion => "textDocument/completion"(CompletionParams),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextDocumentIdentifier {
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub line: usize,
+    pub character: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

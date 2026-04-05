@@ -7,6 +7,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 pub struct ServerCapabilities {
     position_encoding: PositionEncodingKind,
     text_document_sync: Option<TextDocumentSyncOptions>,
+    completion_provider: Option<CompletionOptions>,
 }
 
 impl Default for ServerCapabilities {
@@ -17,8 +18,18 @@ impl Default for ServerCapabilities {
                 open_close: Some(true),
                 change: TextDocumentSyncKind::Full,
             }),
+            completion_provider: Some(CompletionOptions {
+                trigger_characters: Some(vec!["(".to_string()]),
+            }),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger_characters: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
