@@ -55,7 +55,7 @@ syn case match
 hi def link sffFunction Function
 
 " --- Delimeter ---
-syn match sffDelimiter "[(),.]"
+syn match sffDelimiter "[,.]"
 hi def link sffDelimiter Delimiter
 
 " --- TODO/FIXME inside comments ---

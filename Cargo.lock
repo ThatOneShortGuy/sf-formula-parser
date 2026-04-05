@@ -257,6 +257,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "sf_formula_parser",
  "tracing",
  "tracing-subscriber",
 ]
