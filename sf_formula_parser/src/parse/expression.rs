@@ -10,7 +10,7 @@ use crate::{
         field_reference::parse_field_reference, function::parse_function,
         literal_value::parse_literal, utils::spaced,
     },
-    token::{BinaryExpr, Expression, Operator},
+    token::{BinaryExpr, Expression, Operator, UnaryExpr},
 };
 
 fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<Expression<'s>> {
@@ -18,10 +18,24 @@ fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResu
         "parse_primary_expression",
         spaced(alt((
             parse_function.map(|(f, _r)| Expression::function(f)),
-            parse_field_reference.map(|(f, _r)| Expression::field_ref(f)),
             parse_literal.map(|(l, _r)| Expression::literal(l)),
+            parse_field_reference.map(|(f, _r)| Expression::field_ref(f)),
             delimited("(", parse_expression.map(|e| e.0), ")"),
         ))),
+    )
+    .parse_next(input)
+}
+
+fn parse_unary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<Expression<'s>> {
+    trace(
+        "parse_unary_expression",
+        alt((
+            (spaced("!"), parse_unary_expression)
+                .map(|(_, rhs)| Expression::unary_expr(UnaryExpr(Operator::Not, rhs))),
+            (spaced("-"), parse_unary_expression)
+                .map(|(_, rhs)| Expression::unary_expr(UnaryExpr(Operator::Negative, rhs))),
+            parse_primary_expression,
+        )),
     )
     .parse_next(input)
 }
@@ -62,7 +76,7 @@ pub fn parse_expression<'s>(
 
     trace(
         "parse_expression",
-        expression(parse_primary_expression).infix(spaced(parser)),
+        expression(parse_unary_expression).infix(spaced(parser)),
     )
     .with_span()
     .parse_next(input)
@@ -70,7 +84,7 @@ pub fn parse_expression<'s>(
 
 #[cfg(test)]
 mod tests {
-    use crate::token::FieldReference;
+    use crate::token::{FieldReference, LiteralValue, UnaryExpr};
 
     use super::*;
 
@@ -128,6 +142,19 @@ mod tests {
                     FieldReference::new("SBQQ__PrimaryQuote__r")
                         .with_next("Non_Commissionable_Revenue__c")
                 )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_not() {
+        let test_str = LocatingSlice::new("!True");
+
+        assert_eq!(
+            parse_expression.parse(test_str).unwrap().0,
+            Expression::unary_expr(UnaryExpr(
+                Operator::Not,
+                Expression::Literal(LiteralValue::Checkbox(true)),
             ))
         );
     }
