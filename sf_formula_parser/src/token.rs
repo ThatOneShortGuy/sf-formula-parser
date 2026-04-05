@@ -292,10 +292,17 @@ pub enum Operator {
     Or,
     /// Connects two or more strings.
     Concatenate,
+    /// Not is the boolean not.
+    Not,
+    /// `-x` is equivalent to `0 - x`.
+    Negative,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryExpr<'a>(pub Expression<'a>, pub Operator, pub Expression<'a>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnaryExpr<'a>(pub Operator, pub Expression<'a>);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Comment<'a>(pub &'a str);
@@ -318,6 +325,7 @@ pub enum Expression<'a> {
     FieldRef(FieldReference<'a>),
     Literal(LiteralValue<'a>),
     BinaryExpr(Box<BinaryExpr<'a>>),
+    UnaryExpr(Box<UnaryExpr<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -335,5 +343,9 @@ impl<'a> Expression<'a> {
 
     pub fn binary_expr(b: impl Into<BinaryExpr<'a>>) -> Self {
         Self::BinaryExpr(Box::new(b.into()))
+    }
+
+    pub fn unary_expr(b: impl Into<UnaryExpr<'a>>) -> Self {
+        Self::UnaryExpr(Box::new(b.into()))
     }
 }
