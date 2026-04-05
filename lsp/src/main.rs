@@ -34,7 +34,16 @@ fn real_main() -> Result<()> {
             Message::Request(request_message) => request_message,
             Message::Notification(notification_message) => {
                 info!("Recieved Notification: {notification_message:?}");
-                handle_notification(notification_message).context("handling notification")?;
+                let notifications =
+                    handle_notification(notification_message).context("handling notification")?;
+
+                for notification in notifications {
+                    stdout
+                        .write(notification.as_bytes())
+                        .context("Failed to write notification out")?;
+                }
+
+                stdout.flush()?;
                 continue;
             }
         };

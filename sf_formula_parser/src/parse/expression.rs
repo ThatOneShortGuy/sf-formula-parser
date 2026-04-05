@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use winnow::{
     LocatingSlice, ModalResult, Parser,
-    combinator::{Infix, alt, delimited, expression, trace},
+    combinator::{Infix, alt, cut_err, delimited, expression, fail, trace},
+    error::{StrContext, StrContextValue},
 };
 
 use crate::{
@@ -78,11 +79,26 @@ pub fn parse_expression<'s>(
             ops!(Or, 6, "||"),
             ops!(Concatenate, 5, "&"),
         )),
+        fail.context(StrContext::Label("Binary Expression"))
+            .context(StrContext::Expected(StrContextValue::Description(
+                "a valid binary operator",
+            )))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("+")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("-")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("*")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("/")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("=")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("!=")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("<")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral(">")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("&&")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("||")))
+            .context(StrContext::Expected(StrContextValue::StringLiteral("&"))),
     ));
 
     trace(
         "parse_expression",
-        expression(parse_unary_expression).infix(spaced(parser)),
+        expression(parse_unary_expression).infix(spaced(cut_err(parser))),
     )
     .with_span()
     .parse_next(input)
@@ -163,5 +179,23 @@ mod tests {
                 Expression::Literal(LiteralValue::Checkbox(true)),
             ))
         );
+
+        let test_str = LocatingSlice::new("3 + -2");
+        assert_eq!(
+            parse_expression.parse(test_str).unwrap().0,
+            Expression::binary_expr(BinaryExpr(
+                Expression::literal(3),
+                Operator::Add,
+                Expression::unary_expr(UnaryExpr(Operator::Negative, Expression::literal(2)))
+            ))
+        );
+    }
+
+    #[test]
+    fn test_err() {
+        let test_str = LocatingSlice::new("1 ! 3");
+        let parsed = parse_expression.parse(test_str);
+
+        assert!(parsed.is_err());
     }
 }

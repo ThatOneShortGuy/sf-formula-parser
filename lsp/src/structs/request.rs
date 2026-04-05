@@ -44,6 +44,39 @@ pub struct NotificationMessage {
     pub params: Value,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidOpenTextDocumentParams {
+    pub text_document: TextDocumentItem,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentItem {
+    pub uri: String,
+    pub version: i32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeTextDocumentParams {
+    pub text_document: VersionedTextDocumentIdentifier,
+    pub content_changes: Vec<TextDocumentContentChangeEvent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionedTextDocumentIdentifier {
+    pub uri: String,
+    pub version: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TextDocumentContentChangeEvent {
+    pub text: String,
+}
+
 macro_rules! lsp_request_methods {
     (
         $( $Variant:ident => $method_lit:literal ( $Params:ty ) ),+ $(,)?

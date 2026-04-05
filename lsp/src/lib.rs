@@ -3,14 +3,15 @@ pub mod structs;
 use std::io::BufRead;
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sf_formula_parser::{ValidationError, validate_expression_detailed};
 use tracing::{debug, warn};
 
 use crate::structs::{
     initialize::{InitializeResult, ServerInfo},
     request::{
-        ErrorCodes, NotificationMessage, RequestMessage, RequestMethod, ResponseError,
-        ResponsePayload,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, NotificationMessage,
+        RequestMessage, RequestMethod, ResponseError, ResponsePayload,
     },
     server_capabilities::ServerCapabilities,
 };
@@ -72,8 +73,82 @@ pub fn parse_message(mut inp: impl BufRead) -> Result<String> {
     Ok(s)
 }
 
-pub fn handle_notification(_notification: NotificationMessage) -> Result<()> {
-    Ok(())
+pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<String>> {
+    match notification.method.as_str() {
+        "textDocument/didOpen" => {
+            let params = serde_json::from_value::<DidOpenTextDocumentParams>(notification.params)
+                .context("failed to parse didOpen params")?;
+
+            let diagnostics = build_syntax_diagnostics(&params.text_document.text);
+
+            Ok(vec![publish_diagnostics_message(
+                params.text_document.uri,
+                Some(params.text_document.version),
+                diagnostics,
+            )?])
+        }
+        "textDocument/didChange" => {
+            let params = serde_json::from_value::<DidChangeTextDocumentParams>(notification.params)
+                .context("failed to parse didChange params")?;
+
+            let latest_change = params
+                .content_changes
+                .last()
+                .context("didChange had no content changes")?;
+
+            let diagnostics = build_syntax_diagnostics(&latest_change.text);
+
+            Ok(vec![publish_diagnostics_message(
+                params.text_document.uri,
+                Some(params.text_document.version),
+                diagnostics,
+            )?])
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn build_syntax_diagnostics(text: &str) -> Vec<Diagnostic> {
+    match validate_expression_detailed(text) {
+        Ok(()) => Vec::new(),
+        Err(err) => vec![Diagnostic {
+            range: parser_error_range(&err),
+            severity: Some(1),
+            code: Some("E0001".to_string()),
+            source: Some(env!("CARGO_PKG_NAME").to_string()),
+            message: err.message,
+        }],
+    }
+}
+
+fn parser_error_range(err: &ValidationError) -> Range {
+    Range {
+        start: Position {
+            line: err.line,
+            character: err.column,
+        },
+        end: Position {
+            line: err.end_line,
+            character: err.end_column,
+        },
+    }
+}
+
+fn publish_diagnostics_message(
+    uri: String,
+    version: Option<i32>,
+    diagnostics: Vec<Diagnostic>,
+) -> Result<String> {
+    Header::new(NotificationOutput {
+        jsonrpc: "2.0",
+        method: "textDocument/publishDiagnostics",
+        params: PublishDiagnosticsParams {
+            uri,
+            version,
+            diagnostics,
+        },
+    })?
+    .to_string()
 }
 
 pub fn handle_request(request: RequestMessage) -> Result<String> {
@@ -102,6 +177,45 @@ pub fn handle_request(request: RequestMessage) -> Result<String> {
         .context("failed to serialize message")?;
 
     Ok(response)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NotificationOutput<T> {
+    jsonrpc: &'static str,
+    method: &'static str,
+    params: T,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublishDiagnosticsParams {
+    uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<i32>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Diagnostic {
+    range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severity: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Range {
+    start: Position,
+    end: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Position {
+    line: usize,
+    character: usize,
 }
 
 #[cfg(test)]

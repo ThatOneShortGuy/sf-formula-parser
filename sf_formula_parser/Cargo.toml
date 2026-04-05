@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 winnow = { version = "1.0.*" }
 chrono = { version = "*" }
+annotate-snippets = { version = "0.12.*" }
