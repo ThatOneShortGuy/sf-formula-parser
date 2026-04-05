@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use winnow::{
     LocatingSlice, ModalResult, Parser,
-    combinator::{Infix, alt, cut_err, delimited, expression, fail, trace},
+    combinator::{Infix, alt, delimited, expression, fail, trace},
     error::{StrContext, StrContextValue},
 };
 
@@ -67,7 +67,7 @@ pub fn parse_expression<'s>(
             ops!(Subtract, 8, "-"),
         )),
         alt((
-            ops!(Equal, 7, "=", "=="),
+            ops!(Equal, 7, "==", "="),
             ops!(NotEqual, 7, "!=", "<>"),
             ops!(LessThanOrEqual, 7, "<="),
             ops!(LessThan, 7, "<"),
@@ -98,7 +98,7 @@ pub fn parse_expression<'s>(
 
     trace(
         "parse_expression",
-        expression(parse_unary_expression).infix(spaced(cut_err(parser))),
+        expression(parse_unary_expression).infix(spaced(parser)),
     )
     .with_span()
     .parse_next(input)
@@ -164,6 +164,20 @@ mod tests {
                     FieldReference::new("SBQQ__PrimaryQuote__r")
                         .with_next("Non_Commissionable_Revenue__c")
                 )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_expr2() {
+        let test_str = LocatingSlice::new("Short_Leg_Outside_Left_in__c == null");
+
+        assert_eq!(
+            parse_expression.parse(test_str).unwrap().0,
+            Expression::binary_expr(BinaryExpr(
+                Expression::field_ref(FieldReference::new("Short_Leg_Outside_Left_in__c")),
+                Operator::Equal,
+                Expression::literal(LiteralValue::Null)
             ))
         );
     }
