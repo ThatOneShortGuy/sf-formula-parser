@@ -58,20 +58,26 @@ pub fn parse_expression<'s>(
     }
 
     let parser = alt((
-        ops!(Exponentiation, 10, "^"),
-        ops!(Multiply, 9, "*"),
-        ops!(Divide, 9, "/"),
-        ops!(Add, 8, "+"),
-        ops!(Subtract, 8, "-"),
-        ops!(Equal, 7, "=", "=="),
-        ops!(NotEqual, 7, "!=", "<>"),
-        ops!(LessThanOrEqual, 7, "<="),
-        ops!(LessThan, 7, "<"),
-        ops!(GreaterThanOrEqual, 7, ">="),
-        ops!(GreaterThan, 7, ">"),
-        ops!(And, 6, "&&"),
-        ops!(Or, 6, "||"),
-        ops!(Concatenate, 5, "&"),
+        alt((
+            ops!(Exponentiation, 10, "^"),
+            ops!(Multiply, 9, "*"),
+            ops!(Divide, 9, "/"),
+            ops!(Add, 8, "+"),
+            ops!(Subtract, 8, "-"),
+        )),
+        alt((
+            ops!(Equal, 7, "=", "=="),
+            ops!(NotEqual, 7, "!=", "<>"),
+            ops!(LessThanOrEqual, 7, "<="),
+            ops!(LessThan, 7, "<"),
+            ops!(GreaterThanOrEqual, 7, ">="),
+            ops!(GreaterThan, 7, ">"),
+        )),
+        alt((
+            ops!(And, 6, "&&"),
+            ops!(Or, 6, "||"),
+            ops!(Concatenate, 5, "&"),
+        )),
     ));
 
     trace(
