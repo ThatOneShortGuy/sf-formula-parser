@@ -27,6 +27,40 @@ return {
       vim.filetype.add({ extension = { sff = "sff" } })
     end,
     ft = { "sff" },
+    build = function(plugin)
+      local workspace = vim.fs.normalize(vim.fn.fnamemodify(plugin.dir, ':h'))
+      local manifest = vim.fs.joinpath(workspace, 'Cargo.toml')
+
+      local cmd
+      if vim.uv.os_uname().sysname == 'Windows_NT' then
+        cmd = {
+          'cmd.exe',
+          '/c',
+          'cargo',
+          'build',
+          '--release',
+          '--manifest-path',
+          manifest,
+          '-p',
+          'sf_formula_lsp',
+        }
+      else
+        cmd = {
+          'cargo',
+          'build',
+          '--release',
+          '--manifest-path',
+          manifest,
+          '-p',
+          'sf_formula_lsp',
+        }
+      end
+
+      local result = vim.system(cmd, { text = true }):wait()
+      if result.code ~= 0 then
+        error((result.stderr or result.stdout or 'build failed'))
+      end
+    end,
   },
 }
 ```
