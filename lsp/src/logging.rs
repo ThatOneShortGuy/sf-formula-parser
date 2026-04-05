@@ -9,7 +9,13 @@ pub fn setup_logging_to_stderr_and_file(
     file_path: impl AsRef<Path>,
     // stderr_log_level: filter::LevelFilter,
 ) -> Result<()> {
+    #[cfg(debug_assertions)]
     let stderr_log_level = filter::LevelFilter::DEBUG;
+    #[cfg(not(debug_assertions))]
+    let stderr_log_level = filter::LevelFilter::INFO;
+    #[cfg(debug_assertions)]
+    let file_log_level = filter::LevelFilter::DEBUG;
+    #[cfg(not(debug_assertions))]
     let file_log_level = filter::LevelFilter::INFO;
     let stderr_layer = tracing_subscriber::fmt::layer().with_writer(io::stderr);
 
