@@ -79,7 +79,7 @@ pub fn parse_expression<'s>(
             ops!(Or, 6, "||"),
             ops!(Concatenate, 5, "&"),
         )),
-        fail.context(StrContext::Label("Binary Expression"))
+        fail.context(StrContext::Label("binary expression"))
             .context(StrContext::Expected(StrContextValue::Description(
                 "a valid binary operator",
             )))
