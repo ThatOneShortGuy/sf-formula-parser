@@ -7,6 +7,12 @@ endif
 syn keyword sffBoolean True False
 hi def link sffBoolean Boolean
 
+" --- Null literal ---
+syn case ignore
+syn keyword sffNull null
+syn case match
+hi def link sffNull Constant
+
 " --- Numbers ---
 syn match sffNumber '\v\d+(\.\d*)?' contains=sffNumberDot
 syn match sffNumberDot '\.' contained
@@ -18,7 +24,7 @@ syn match sffOperator '\(==\|!=\|<>\|<=\|>=\|&&\||||\)'
 syn match sffOperator "[-^*/+=<>&]"
 hi def link sffOperator Operator
 
-" --- Identifier ---
+" --- Keyword ---
 syn match sffKeyword '\([A-Za-z][A-Za-z0-9_]*\)'
 hi def link sffKeyword Keyword
 

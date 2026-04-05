@@ -13,6 +13,7 @@
 /// - The last number 2 in this formula is the input required for the ROUND function that determines the number of decimal places to return.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LiteralValue<'s> {
+    Null,
     Checkbox(bool),
     Number(f64),
     Text(&'s str),
