@@ -35,18 +35,32 @@ pub fn parse_number<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<f64> 
 pub fn parse_string<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<&'s str> {
     trace(
         "parse_string",
-        delimited(
-            "\"",
-            repeat::<_, _, (), _, _>(
-                0..,
-                alt((
-                    ("\\", any).void(),
-                    any.verify(|c| *c != '"' && *c != '\\').void(), // any non-quote/non-backslash char
-                )),
-            )
-            .take(),
-            "\"",
-        ),
+        alt((
+            delimited(
+                "\"",
+                repeat::<_, _, (), _, _>(
+                    0..,
+                    alt((
+                        ("\\", any).void(),
+                        any.verify(|c| *c != '"' && *c != '\\').void(),
+                    )),
+                )
+                .take(),
+                "\"",
+            ),
+            delimited(
+                "'",
+                repeat::<_, _, (), _, _>(
+                    0..,
+                    alt((
+                        ("\\", any).void(),
+                        any.verify(|c| *c != '\'' && *c != '\\').void(),
+                    )),
+                )
+                .take(),
+                "'",
+            ),
+        )),
     )
     .parse_next(input)
 }
@@ -121,17 +135,21 @@ mod tests {
     #[test]
     fn test_string() {
         let test_str = LocatingSlice::new("\"he said, \\\"hi\\\"\"");
-
         assert_eq!(parse_string.parse(test_str).unwrap(), "he said, \\\"hi\\\"");
 
         let test_str = LocatingSlice::new("\"path \\\\tmp\"");
-
         assert_eq!(parse_string.parse(test_str).unwrap(), "path \\\\tmp");
 
         let test_str = LocatingSlice::new("\"invalid \\");
         assert!(parse_string.parse(test_str).is_err());
 
         let test_str = LocatingSlice::new("\"he said, \"\"hi\"\"\"");
+        assert!(parse_string.parse(test_str).is_err());
+
+        let test_str = LocatingSlice::new("' x '");
+        assert_eq!(parse_string.parse(test_str).unwrap(), " x ");
+
+        let test_str = LocatingSlice::new("' x \"");
         assert!(parse_string.parse(test_str).is_err());
     }
 }

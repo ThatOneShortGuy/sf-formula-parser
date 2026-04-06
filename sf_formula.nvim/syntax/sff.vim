@@ -37,9 +37,10 @@ hi def link sffFieldReference Identifier
 hi def link sffFieldSeparator Delimiter
 
 " --- Strings ---
-" Double-quoted strings with escapes
+" Double and single quoted strings with escapes
 syn match sffStringEscape +\v\\.+ contained
 syn region sffString start=+"+ skip=+\v\\.+ end=+"+ contains=sffStringEscape
+syn region sffString start=+'+ skip=+\v\\.+ end=+'+ contains=sffStringEscape
 hi def link sffString String
 hi def link sffStringEscape SpecialChar
 
