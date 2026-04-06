@@ -15,6 +15,8 @@ Neovim support for Salesforce-style formula files (`.sff`) with:
 
 Add this plugin spec to your Lazy plugin list (for example in `lua/plugins/sf_formula.lua`):
 
+DOESN'T WORK RIGHT NOW, WILL UPDATE SOON
+
 ```lua
 return {
   {
