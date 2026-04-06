@@ -1,28 +1,31 @@
 local M = {}
 
+local function plugin_repo_root()
+	local source = debug.getinfo(1, "S").source:sub(2)
+	local this_dir = vim.fn.fnamemodify(source, ":p:h")
+	-- this_dir = .../sf_formula.nvim/lua/sf_formula
+	return vim.fs.normalize(vim.fs.joinpath(this_dir, "..", "..", ".."))
+end
+
 local function find_cmd()
-	-- 1. allow user override
 	if vim.g.sf_formula_lsp_cmd then
 		return vim.g.sf_formula_lsp_cmd
 	end
 
-	-- 2. prefer executable on PATH
 	if vim.fn.executable("sf_formula_lsp") == 1 then
 		return { "sf_formula_lsp" }
 	end
 
-	-- 3. optional local dev fallback
-	local plugin_dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
-	if plugin_dir then
-		local candidate = vim.fs.normalize(plugin_dir .. "../../../target/release/sf_formula_lsp")
-		if vim.fn.executable(candidate) == 1 then
-			return { candidate }
-		end
+	local repo_root = plugin_repo_root()
+	local unix_bin = vim.fs.joinpath(repo_root, "target", "release", "sf_formula_lsp")
+	local win_bin = unix_bin .. ".exe"
 
-		local win_candidate = candidate .. ".exe"
-		if vim.fn.executable(win_candidate) == 1 then
-			return { win_candidate }
-		end
+	if vim.fn.executable(unix_bin) == 1 then
+		return { unix_bin }
+	end
+
+	if vim.fn.executable(win_bin) == 1 then
+		return { win_bin }
 	end
 
 	return nil
