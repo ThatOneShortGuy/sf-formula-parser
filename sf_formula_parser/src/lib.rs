@@ -2,10 +2,11 @@ pub mod parse;
 pub mod token;
 
 use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
+use std::collections::HashSet;
 use std::fmt;
 use winnow::{
     LocatingSlice, Parser,
-    error::{ContextError, ParseError},
+    error::{ContextError, ParseError, StrContext, StrContextValue},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,14 +53,6 @@ fn render_parse_error<'s>(
     source_name: &str,
     err: ParseError<LocatingSlice<&'s str>, ContextError>,
 ) -> ValidationError {
-    let message = {
-        let inner = err.inner().to_string();
-        if inner.trim().is_empty() {
-            "unexpected token while parsing expression".to_string()
-        } else {
-            inner
-        }
-    };
     let offset = err.offset();
     let end_offset = input
         .get(offset..)
@@ -69,7 +62,40 @@ fn render_parse_error<'s>(
     let (line, column) = offset_to_position(input, offset);
     let (end_line, end_column) = offset_to_position(input, end_offset);
 
-    let report = &[Level::ERROR
+    let mut seen_labels: HashSet<&'static str> = HashSet::new();
+    let labels: Vec<&'static str> = err
+        .inner()
+        .context()
+        .filter_map(|ctx| match ctx {
+            StrContext::Label(label) => Some(*label),
+            _ => None,
+        })
+        .filter(|label| seen_labels.insert(*label))
+        .collect();
+    let mut seen_expected: HashSet<String> = HashSet::new();
+    let expected: Vec<String> = err
+        .inner()
+        .context()
+        .filter_map(|ctx| match ctx {
+            StrContext::Expected(StrContextValue::Description(desc)) => Some((*desc).to_string()),
+            StrContext::Expected(StrContextValue::StringLiteral(s)) => Some(format!("`{s}`")),
+            StrContext::Expected(StrContextValue::CharLiteral(c)) => Some(format!("`{c}`")),
+            _ => None,
+        })
+        .filter(|exp| seen_expected.insert(exp.clone()))
+        .collect();
+
+    let message = if let Some(cause) = err.inner().cause() {
+        cause.to_string()
+    } else if let Some(label) = labels.first() {
+        format!("invalid {label}")
+    } else if !expected.is_empty() {
+        format!("expected {}", expected.join(", "))
+    } else {
+        "unexpected token while parsing expression".to_string()
+    };
+
+    let mut report = Level::ERROR
         .primary_title("invalid formula expression")
         .element(
             Snippet::source(input)
@@ -81,11 +107,21 @@ fn render_parse_error<'s>(
                         .label("error occurred here"),
                 ),
         )
-        .element(Level::NOTE.message(message.clone()))];
+        .element(Level::NOTE.message(message.clone()));
+
+    if !labels.is_empty() {
+        report =
+            report.element(Level::NOTE.message(format!("while parsing: {}", labels.join(" -> "))));
+    }
+
+    if !expected.is_empty() {
+        report = report
+            .element(Level::NOTE.message(format!("expected one of: {}", expected.join(", "))));
+    }
 
     ValidationError {
         message,
-        rendered: Renderer::styled().render(report).to_string(),
+        rendered: Renderer::styled().render(&[report]).to_string(),
         offset,
         end_offset,
         line,

@@ -28,12 +28,13 @@ pub fn parse_field_reference<'s>(
     trace(
         "parse_field_reference",
         spaced(
-            separated(1.., parse_field_name, ".").map(|s: Vec<&'s str>| {
-                FieldReference::from_iter(s).expect("There should be at least one occurrence")
-            }),
+            separated(1.., parse_field_name, ".")
+                .map(|s: Vec<&'s str>| {
+                    FieldReference::from_iter(s).expect("There should be at least one occurrence")
+                })
+                .with_span(),
         ),
     )
-    .with_span()
     .parse_next(input)
 }
 

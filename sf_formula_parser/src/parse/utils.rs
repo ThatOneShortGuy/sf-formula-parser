@@ -1,22 +1,36 @@
 use winnow::{
-    Parser,
-    ascii::multispace0,
+    LocatingSlice, Parser,
+    ascii::multispace1,
+    combinator::{alt, delimited, repeat},
     error::ParserError,
-    stream::{AsChar, Stream, StreamIsPartial},
+    token::take_until,
 };
 
-pub fn spaced<Input, Output, Error, ParseNext>(
+pub fn spaced<'s, Output, Error, ParseNext>(
     mut parser: ParseNext,
-) -> impl Parser<Input, Output, Error>
+) -> impl Parser<LocatingSlice<&'s str>, Output, Error>
 where
-    Input: Stream + StreamIsPartial,
-    Error: ParserError<Input>,
-    ParseNext: Parser<Input, Output, Error>,
-    <Input as Stream>::Token: AsChar + Clone,
+    Error: ParserError<LocatingSlice<&'s str>>,
+    ParseNext: Parser<LocatingSlice<&'s str>, Output, Error>,
 {
-    winnow::combinator::trace("spaced", move |input: &mut Input| {
-        let _ = multispace0.parse_next(input)?;
+    winnow::combinator::trace("spaced", move |input: &mut LocatingSlice<&'s str>| {
+        let _ = repeat::<_, _, (), _, _>(
+            0..,
+            alt((
+                multispace1.void(),
+                delimited("/*", take_until(0.., "*/"), "*/").void(),
+            )),
+        )
+        .parse_next(input)?;
         let o2 = parser.parse_next(input)?;
-        multispace0.parse_next(input).map(|_| o2)
+        repeat::<_, _, (), _, _>(
+            0..,
+            alt((
+                multispace1.void(),
+                delimited("/*", take_until(0.., "*/"), "*/").void(),
+            )),
+        )
+        .parse_next(input)
+        .map(|_| o2)
     })
 }

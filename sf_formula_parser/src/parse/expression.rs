@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use winnow::{
     LocatingSlice, ModalResult, Parser,
     combinator::{Infix, alt, delimited, expression, fail, trace},
@@ -11,18 +9,31 @@ use crate::{
         field_reference::parse_field_reference, function::parse_function,
         literal_value::parse_literal, utils::spaced,
     },
-    token::{BinaryExpr, Expression, Operator, UnaryExpr},
+    token::{Expression, Operator, UnaryExpr},
 };
 
 fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<Expression<'s>> {
     trace(
         "parse_primary_expression",
-        spaced(alt((
-            parse_function.map(|(f, _r)| Expression::function(f)),
-            parse_literal.map(|(l, _r)| Expression::literal(l)),
-            parse_field_reference.map(|(f, _r)| Expression::field_ref(f)),
-            delimited("(", parse_expression.map(|e| e.0), ")"),
-        ))),
+        alt((
+            parse_function.map(|(f, r)| Expression::function(f, r)),
+            parse_literal.map(|(l, r)| Expression::literal(l, r)),
+            parse_field_reference.map(|(f, r)| Expression::field_ref(f, r)),
+            delimited(spaced("("), parse_expression, spaced(")")),
+            fail.context(StrContext::Label("primary expression"))
+                .context(StrContext::Expected(StrContextValue::Description(
+                    "function",
+                )))
+                .context(StrContext::Expected(StrContextValue::Description(
+                    "literal",
+                )))
+                .context(StrContext::Expected(StrContextValue::Description(
+                    "field reference",
+                )))
+                .context(StrContext::Expected(StrContextValue::Description(
+                    "parenthesized expression",
+                ))),
+        )),
     )
     .parse_next(input)
 }
@@ -31,29 +42,32 @@ fn parse_unary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult
     trace(
         "parse_unary_expression",
         alt((
-            (spaced("!"), parse_unary_expression)
-                .map(|(_, rhs)| Expression::unary_expr(UnaryExpr(Operator::Not, rhs))),
-            (spaced("-"), parse_unary_expression)
-                .map(|(_, rhs)| Expression::unary_expr(UnaryExpr(Operator::Negative, rhs))),
+            spaced(("!", parse_unary_expression).with_span())
+                .map(|((_, rhs), r)| Expression::unary_expr(UnaryExpr(Operator::Not, rhs), r)),
+            spaced(("-", parse_unary_expression).with_span())
+                .map(|((_, rhs), r)| Expression::unary_expr(UnaryExpr(Operator::Negative, rhs), r)),
             parse_primary_expression,
+            fail.context(StrContext::Expected(StrContextValue::CharLiteral('!')))
+                .context(StrContext::Expected(StrContextValue::CharLiteral('-')))
+                .context(StrContext::Expected(StrContextValue::Description(
+                    "primary expression",
+                ))),
         )),
     )
     .parse_next(input)
 }
 
-pub fn parse_expression<'s>(
-    input: &mut LocatingSlice<&'s str>,
-) -> ModalResult<(Expression<'s>, Range<usize>)> {
+pub fn parse_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<Expression<'s>> {
     macro_rules! ops {
         ($varient:ident, $prec:literal, $s:literal $(,$ss:literal)+ $(,)?) => {
-            alt(($s, $($ss),+)).value(Infix::Left($prec, |_, a, b| {
-                Ok(Expression::binary_expr(BinaryExpr(a, Operator::$varient, b)))
+            spaced(alt(($s, $($ss),+))).value(Infix::Left($prec, |_, a, b| {
+                Ok(Expression::from_binary_expr(a, Operator::$varient, b))
             }))
         };
 
         ($varient:ident, $prec:literal, $s:literal) => {
-            $s.value(Infix::Left($prec, |_, a, b| {
-                Ok(Expression::binary_expr(BinaryExpr(a, Operator::$varient, b)))
+            spaced($s).value(Infix::Left($prec, |_, a, b| {
+                Ok(Expression::from_binary_expr(a, Operator::$varient, b))
             }))
         };
     }
@@ -98,56 +112,86 @@ pub fn parse_expression<'s>(
 
     trace(
         "parse_expression",
-        expression(parse_unary_expression).infix(spaced(parser)),
+        expression(parse_unary_expression)
+            .infix(parser)
+            .context(StrContext::Label("expression"))
+            .context(StrContext::Expected(StrContextValue::Description(
+                "unary expression",
+            )))
+            .context(StrContext::Expected(StrContextValue::Description(
+                "binary expression",
+            ))),
     )
-    .with_span()
     .parse_next(input)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::token::{FieldReference, LiteralValue, UnaryExpr};
+    use crate::token::{BinaryExpr, FieldReference, LiteralValue, UnaryExpr};
 
     use super::*;
+
+    fn span_of(input: &LocatingSlice<&str>, needle: &str) -> std::ops::Range<usize> {
+        let source = input.as_ref();
+        let start = source
+            .find(needle)
+            .unwrap_or_else(|| panic!("missing span for {needle}"));
+        start..(start + needle.len())
+    }
 
     #[test]
     fn test_bin_expr() {
         let test_str = LocatingSlice::new("6 + 9");
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::literal(6),
-                Operator::Add,
-                Expression::literal(9)
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len(),
+                BinaryExpr(
+                    Expression::literal(6, span_of(&test_str, "6")),
+                    Operator::Add,
+                    Expression::literal(9, span_of(&test_str, "9"))
+                ),
+            )
         );
 
         let test_str = LocatingSlice::new("6 + 9 * 42");
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::literal(6),
-                Operator::Add,
-                Expression::binary_expr(BinaryExpr(
-                    Expression::literal(9),
-                    Operator::Multiply,
-                    Expression::literal(42)
-                ))
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len(),
+                BinaryExpr(
+                    Expression::literal(6, span_of(&test_str, "6")),
+                    Operator::Add,
+                    Expression::binary_expr(
+                        span_of(&test_str, "9 * 42"),
+                        BinaryExpr(
+                            Expression::literal(9, span_of(&test_str, "9")),
+                            Operator::Multiply,
+                            Expression::literal(42, span_of(&test_str, "42"))
+                        )
+                    )
+                )
+            )
         );
 
         let test_str = LocatingSlice::new("(6 + 9) * 42");
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::binary_expr(BinaryExpr(
-                    Expression::literal(6),
-                    Operator::Add,
-                    Expression::literal(9),
-                )),
-                Operator::Multiply,
-                Expression::literal(42)
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                1..test_str.len(),
+                BinaryExpr(
+                    Expression::binary_expr(
+                        span_of(&test_str, "6 + 9"),
+                        BinaryExpr(
+                            Expression::literal(6, span_of(&test_str, "6")),
+                            Operator::Add,
+                            Expression::literal(9, span_of(&test_str, "9")),
+                        )
+                    ),
+                    Operator::Multiply,
+                    Expression::literal(42, span_of(&test_str, "42"))
+                )
+            )
         );
     }
 
@@ -156,15 +200,22 @@ mod tests {
         let test_str =
             LocatingSlice::new("Amount - SBQQ__PrimaryQuote__r.Non_Commissionable_Revenue__c");
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::field_ref("Amount"),
-                Operator::Subtract,
-                Expression::field_ref(
-                    FieldReference::new("SBQQ__PrimaryQuote__r")
-                        .with_next("Non_Commissionable_Revenue__c")
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len(),
+                BinaryExpr(
+                    Expression::field_ref("Amount", span_of(&test_str, "Amount")),
+                    Operator::Subtract,
+                    Expression::field_ref(
+                        FieldReference::new("SBQQ__PrimaryQuote__r")
+                            .with_next("Non_Commissionable_Revenue__c"),
+                        span_of(
+                            &test_str,
+                            "SBQQ__PrimaryQuote__r.Non_Commissionable_Revenue__c"
+                        )
+                    )
                 )
-            ))
+            )
         );
     }
 
@@ -173,12 +224,18 @@ mod tests {
         let test_str = LocatingSlice::new("Short_Leg_Outside_Left_in__c == null");
 
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::field_ref(FieldReference::new("Short_Leg_Outside_Left_in__c")),
-                Operator::Equal,
-                Expression::literal(LiteralValue::Null)
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len(),
+                BinaryExpr(
+                    Expression::field_ref(
+                        FieldReference::new("Short_Leg_Outside_Left_in__c"),
+                        span_of(&test_str, "Short_Leg_Outside_Left_in__c")
+                    ),
+                    Operator::Equal,
+                    Expression::literal(LiteralValue::Null, span_of(&test_str, "null"))
+                )
+            )
         );
     }
 
@@ -187,21 +244,33 @@ mod tests {
         let test_str = LocatingSlice::new("!True");
 
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::unary_expr(UnaryExpr(
-                Operator::Not,
-                Expression::Literal(LiteralValue::Checkbox(true)),
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::unary_expr(
+                UnaryExpr(
+                    Operator::Not,
+                    Expression::literal(LiteralValue::Checkbox(true), span_of(&test_str, "True")),
+                ),
+                0..test_str.len()
+            )
         );
 
         let test_str = LocatingSlice::new("3 + -2");
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::literal(3),
-                Operator::Add,
-                Expression::unary_expr(UnaryExpr(Operator::Negative, Expression::literal(2)))
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len(),
+                BinaryExpr(
+                    Expression::literal(3, span_of(&test_str, "3")),
+                    Operator::Add,
+                    Expression::unary_expr(
+                        UnaryExpr(
+                            Operator::Negative,
+                            Expression::literal(2, span_of(&test_str, "2"))
+                        ),
+                        span_of(&test_str, "-2")
+                    )
+                )
+            )
         );
     }
 
@@ -219,14 +288,36 @@ mod tests {
             LocatingSlice::new("SBQQ__Quote__r.Exterior_Color_All__c != (Exterior_Color__c)");
 
         assert_eq!(
-            parse_expression.parse(test_str).unwrap().0,
-            Expression::binary_expr(BinaryExpr(
-                Expression::field_ref(
-                    FieldReference::new("SBQQ__Quote__r").with_next("Exterior_Color_All__c")
-                ),
-                Operator::NotEqual,
-                Expression::field_ref(FieldReference::new("Exterior_Color__c")),
-            ))
+            parse_expression.parse(test_str).unwrap(),
+            Expression::binary_expr(
+                0..test_str.len() - 1,
+                BinaryExpr(
+                    Expression::field_ref(
+                        FieldReference::new("SBQQ__Quote__r").with_next("Exterior_Color_All__c"),
+                        span_of(&test_str, "SBQQ__Quote__r.Exterior_Color_All__c")
+                    ),
+                    Operator::NotEqual,
+                    Expression::field_ref(
+                        FieldReference::new("Exterior_Color__c"),
+                        span_of(&test_str, "Exterior_Color__c")
+                    ),
+                )
+            )
         );
+    }
+
+    #[test]
+    fn test_comment_expression() {
+        let test_str = LocatingSlice::new(
+            "IF(ISNULL(Wall_Thickness_in__c), 'Depth:','Wall Thickness:') & ' __________'
+/* --- COMMENTING OUT EXTERIOR ---
+    & BR()
+    & BR()
+    & 'Exterior: W __________ x H __________'
+*/
+    & BR()",
+        );
+
+        parse_expression.parse(test_str).unwrap();
     }
 }

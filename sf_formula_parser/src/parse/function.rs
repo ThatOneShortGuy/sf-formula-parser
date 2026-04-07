@@ -4,14 +4,14 @@ use std::str::FromStr;
 use winnow::{
     LocatingSlice,
     ascii::alpha1,
-    combinator::{cut_err, delimited, opt, preceded, repeat, separated, trace},
-    error::ErrMode,
+    combinator::{alt, cut_err, delimited, peek, repeat, separated, trace},
+    error::{ErrMode, StrContext, StrContextValue},
     prelude::*,
 };
 
 use crate::{
     parse::{expression::parse_expression, utils::spaced},
-    token::{Function, FunctionArgumentList, FunctionName},
+    token::{Expression, Function, FunctionArgumentList, FunctionName},
 };
 #[derive(Debug)]
 pub struct UnknownFunction;
@@ -46,28 +46,34 @@ pub fn parse_function_name<'s>(
 
 pub fn parse_function_args<'s>(
     input: &mut LocatingSlice<&'s str>,
-) -> ModalResult<(FunctionArgumentList<'s>, Range<usize>)> {
+) -> ModalResult<FunctionArgumentList<'s>> {
+    let parse_arg = || parse_expression;
+
     trace(
         "parse_function_args",
         delimited(
-            spaced("("),
-            (
-                opt(parse_expression.map(|(e, _r)| e)),
-                repeat(
-                    0..,
-                    preceded(spaced(","), cut_err(parse_expression.map(|(e, _r)| e))),
-                ),
-            )
-                .map(|(first, mut rest): (Option<_>, Vec<_>)| {
-                    if let Some(first) = first {
-                        rest.insert(0, first);
-                    }
-                    FunctionArgumentList::from(rest)
-                }),
-            spaced(")"),
+            spaced("(").context(StrContext::Expected(StrContextValue::CharLiteral('('))),
+            alt((
+                peek(spaced(")")).value(Vec::new()),
+                (
+                    cut_err(parse_arg()),
+                    repeat(
+                        0..,
+                        (spaced(","), cut_err(parse_arg())).map(|(_, expr)| expr),
+                    ),
+                )
+                    .map(|(first, rest): (Expression<'_>, Vec<Expression<'_>>)| {
+                        let mut args = Vec::with_capacity(rest.len() + 1);
+                        args.push(first);
+                        args.extend(rest);
+                        args
+                    }),
+            ))
+            .with_span(),
+            spaced(")").context(StrContext::Expected(StrContextValue::CharLiteral(')'))),
         ),
     )
-    .with_span()
+    .map(|(data, r): (Vec<Expression<'_>>, Range<usize>)| FunctionArgumentList::from((data, r)))
     .parse_next(input)
 }
 
@@ -77,7 +83,7 @@ pub fn parse_function<'s>(
     trace(
         "parse_function",
         (parse_function_name, cut_err(parse_function_args))
-            .map(|((fname, _), (args, _))| Function::new(fname, args)),
+            .map(|((fname, _), args)| Function::new(fname, args)),
     )
     .with_span()
     .parse_next(input)
@@ -117,14 +123,17 @@ mod tests {
     fn test_parse_function_args() {
         let test_str = LocatingSlice::new("()");
         assert_eq!(
-            parse_function_args.parse(test_str).unwrap().0,
-            FunctionArgumentList(Vec::new())
+            parse_function_args.parse(test_str).unwrap(),
+            FunctionArgumentList::new(Vec::new(), 1..1)
         );
 
         let test_str = LocatingSlice::new("(1, \"\")");
         assert_eq!(
-            parse_function_args.parse(test_str).unwrap().0,
-            FunctionArgumentList(vec![Expression::literal(1), Expression::literal("")])
+            parse_function_args.parse(test_str).unwrap(),
+            FunctionArgumentList::new(
+                vec![Expression::literal(1, 1..2), Expression::literal("", 4..6)],
+                1..6
+            )
         );
     }
 
@@ -135,8 +144,36 @@ mod tests {
             parse_function.parse(test_str).unwrap().0,
             Function::new(
                 FunctionName::AND,
-                FunctionArgumentList(vec![Expression::literal(1), Expression::literal("")])
+                FunctionArgumentList::new(
+                    vec![Expression::literal(1, 6..7), Expression::literal("", 9..11)],
+                    6..12
+                )
             )
         );
+    }
+
+    #[test]
+    fn test_single_arg() {
+        let test_str = LocatingSlice::new("ISNULL(Wall_Thickness_in__c)");
+
+        assert_eq!(
+            parse_function.parse(test_str).unwrap().0,
+            Function::new(
+                FunctionName::ISNULL,
+                FunctionArgumentList::new(
+                    [Expression::field_ref("Wall_Thickness_in__c", 7..27)],
+                    7..27
+                )
+            )
+        );
+    }
+
+    #[test]
+    fn test_comment_func() {
+        let test_str = LocatingSlice::new(
+            "IF(ISNULL(Wall_Thickness_in__c), /* wall */ 'Depth:','Wall Thickness:')",
+        );
+
+        parse_expression.parse(test_str).unwrap();
     }
 }

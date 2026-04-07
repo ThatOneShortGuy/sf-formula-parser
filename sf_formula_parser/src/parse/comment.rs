@@ -7,14 +7,14 @@ use winnow::{
     token::take_until,
 };
 
-use crate::{parse::utils::spaced, token::Comment};
+use crate::token::Comment;
 
 pub fn parse_comment<'s>(
     input: &mut LocatingSlice<&'s str>,
 ) -> ModalResult<(Comment<'s>, Range<usize>)> {
     trace(
         "parse_comment",
-        spaced(delimited("/*", take_until(0.., "*/"), "*/")).map(|s| Comment(s)),
+        delimited("/*", take_until(0.., "*/"), "*/").map(|s| Comment(s)),
     )
     .with_span()
     .parse_next(input)

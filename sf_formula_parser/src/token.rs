@@ -485,18 +485,34 @@ fn parse_function_descriptions(source: &str) -> HashMap<String, String> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FunctionArgumentList<'a>(pub Vec<Expression<'a>>);
+pub struct FunctionArgumentList<'a> {
+    pub args: Vec<Expression<'a>>,
+    pub range: Range<usize>,
+}
 
 impl<'a> FunctionArgumentList<'a> {
+    pub fn new(args: impl IntoIterator<Item = Expression<'a>>, range: Range<usize>) -> Self {
+        Self {
+            args: args.into_iter().collect(),
+            range,
+        }
+    }
     pub fn add_argument(mut self, arg: Expression<'a>) -> Self {
-        self.0.push(arg);
+        self.args.push(arg);
+        self
+    }
+
+    pub fn add_arguments<I: IntoIterator<Item = Expression<'a>>>(mut self, args: I) -> Self {
+        self.args.extend(args);
         self
     }
 }
 
-impl<'a, T: IntoIterator<Item = Expression<'a>>> From<T> for FunctionArgumentList<'a> {
-    fn from(value: T) -> Self {
-        Self(value.into_iter().collect())
+impl<'a, T: IntoIterator<Item = Expression<'a>>> From<(T, Range<usize>)>
+    for FunctionArgumentList<'a>
+{
+    fn from(value: (T, Range<usize>)) -> Self {
+        Self::new(value.0, value.1)
     }
 }
 
@@ -558,7 +574,7 @@ impl<'a> Function<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expression<'a> {
+pub enum ExpressionData<'a> {
     Function(Box<Function<'a>>),
     FieldRef(FieldReference<'a>),
     Literal(LiteralValue<'a>),
@@ -566,25 +582,53 @@ pub enum Expression<'a> {
     UnaryExpr(Box<UnaryExpr<'a>>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Expression<'a> {
+    pub data: ExpressionData<'a>,
+    pub range: Range<usize>,
+}
+
 impl<'a> Expression<'a> {
-    pub fn function(f: impl Into<Function<'a>>) -> Self {
-        Self::Function(Box::new(f.into()))
+    pub fn function(f: impl Into<Function<'a>>, range: Range<usize>) -> Self {
+        Self {
+            data: ExpressionData::Function(Box::new(f.into())),
+            range,
+        }
     }
 
-    pub fn field_ref(f: impl Into<FieldReference<'a>>) -> Self {
-        Self::FieldRef(f.into())
+    pub fn field_ref(f: impl Into<FieldReference<'a>>, range: Range<usize>) -> Self {
+        Self {
+            data: ExpressionData::FieldRef(f.into()),
+            range,
+        }
     }
 
-    pub fn literal(l: impl Into<LiteralValue<'a>>) -> Self {
-        Self::Literal(l.into())
+    pub fn literal(l: impl Into<LiteralValue<'a>>, range: Range<usize>) -> Self {
+        Self {
+            data: ExpressionData::Literal(l.into()),
+            range,
+        }
     }
 
-    pub fn binary_expr(b: impl Into<BinaryExpr<'a>>) -> Self {
-        Self::BinaryExpr(Box::new(b.into()))
+    pub fn binary_expr(range: Range<usize>, b: impl Into<BinaryExpr<'a>>) -> Self {
+        Self {
+            data: ExpressionData::BinaryExpr(Box::new(b.into())),
+            range,
+        }
     }
 
-    pub fn unary_expr(b: impl Into<UnaryExpr<'a>>) -> Self {
-        Self::UnaryExpr(Box::new(b.into()))
+    pub fn from_binary_expr(a: Expression<'a>, op: Operator, b: Expression<'a>) -> Self {
+        Self {
+            range: a.range.start..b.range.end,
+            data: ExpressionData::BinaryExpr(Box::new(BinaryExpr(a, op, b))),
+        }
+    }
+
+    pub fn unary_expr(b: impl Into<UnaryExpr<'a>>, range: Range<usize>) -> Self {
+        Self {
+            data: ExpressionData::UnaryExpr(Box::new(b.into())),
+            range,
+        }
     }
 }
 
@@ -601,4 +645,4 @@ mod tests {
         assert!(description.contains("nearest number"));
     }
 }
-use std::{collections::HashMap, sync::LazyLock};
+use std::{collections::HashMap, ops::Range, sync::LazyLock};

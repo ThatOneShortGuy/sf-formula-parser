@@ -70,14 +70,16 @@ pub fn parse_literal<'s>(
 ) -> ModalResult<(LiteralValue<'s>, Range<usize>)> {
     trace(
         "parse_literal",
-        spaced(alt((
-            parse_null.map(|()| LiteralValue::Null),
-            parse_number.map(|f| LiteralValue::Number(f)),
-            parse_checkbox.map(|b| LiteralValue::Checkbox(b)),
-            parse_string.map(|s| LiteralValue::Text(s)),
-        ))),
+        spaced(
+            alt((
+                parse_null.map(|()| LiteralValue::Null),
+                parse_number.map(|f| LiteralValue::Number(f)),
+                parse_checkbox.map(|b| LiteralValue::Checkbox(b)),
+                parse_string.map(|s| LiteralValue::Text(s)),
+            ))
+            .with_span(),
+        ),
     )
-    .with_span()
     .parse_next(input)
 }
 
