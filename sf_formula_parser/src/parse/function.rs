@@ -4,7 +4,7 @@ use std::str::FromStr;
 use winnow::{
     LocatingSlice,
     ascii::alpha1,
-    combinator::{delimited, separated, trace},
+    combinator::{cut_err, delimited, opt, preceded, repeat, separated, trace},
     error::ErrMode,
     prelude::*,
 };
@@ -51,8 +51,19 @@ pub fn parse_function_args<'s>(
         "parse_function_args",
         delimited(
             spaced("("),
-            separated(0.., parse_expression.map(|(e, _r)| e), spaced(","))
-                .map(|it: Vec<_>| FunctionArgumentList::from(it)),
+            (
+                opt(parse_expression.map(|(e, _r)| e)),
+                repeat(
+                    0..,
+                    preceded(spaced(","), cut_err(parse_expression.map(|(e, _r)| e))),
+                ),
+            )
+                .map(|(first, mut rest): (Option<_>, Vec<_>)| {
+                    if let Some(first) = first {
+                        rest.insert(0, first);
+                    }
+                    FunctionArgumentList::from(rest)
+                }),
             spaced(")"),
         ),
     )
@@ -65,7 +76,7 @@ pub fn parse_function<'s>(
 ) -> ModalResult<(Function<'s>, Range<usize>)> {
     trace(
         "parse_function",
-        (parse_function_name, parse_function_args)
+        (parse_function_name, cut_err(parse_function_args))
             .map(|((fname, _), (args, _))| Function::new(fname, args)),
     )
     .with_span()
