@@ -12,6 +12,7 @@ use winnow::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationError {
     pub message: String,
+    pub details: Vec<String>,
     pub rendered: String,
     pub offset: usize,
     pub end_offset: usize,
@@ -46,6 +47,16 @@ fn offset_to_position(input: &str, offset: usize) -> (usize, usize) {
     }
 
     (line, clamped.saturating_sub(line_start))
+}
+
+fn unexpected_token_message(input: &str, offset: usize) -> String {
+    match input.get(offset..).and_then(|rest| rest.chars().next()) {
+        Some(ch) => {
+            let escaped = ch.escape_default().to_string();
+            format!("unexpected \"{escaped}\"")
+        }
+        None => "unexpected end of input".to_string(),
+    }
 }
 
 fn render_parse_error<'s>(
@@ -85,15 +96,15 @@ fn render_parse_error<'s>(
         .filter(|exp| seen_expected.insert(exp.clone()))
         .collect();
 
-    let message = if let Some(cause) = err.inner().cause() {
-        cause.to_string()
-    } else if let Some(label) = labels.first() {
-        format!("invalid {label}")
-    } else if !expected.is_empty() {
-        format!("expected {}", expected.join(", "))
-    } else {
-        "unexpected token while parsing expression".to_string()
-    };
+    let message = unexpected_token_message(input, offset);
+    let mut details = Vec::new();
+
+    if let Some(cause) = err.inner().cause() {
+        let cause = cause.to_string();
+        if cause != message {
+            details.push(cause);
+        }
+    }
 
     let mut report = Level::ERROR
         .primary_title("invalid formula expression")
@@ -109,18 +120,27 @@ fn render_parse_error<'s>(
         )
         .element(Level::NOTE.message(message.clone()));
 
+    if let Some(label) = labels.first() {
+        let detail = format!("invalid {label}");
+        details.push(detail.clone());
+        report = report.element(Level::NOTE.message(detail));
+    }
+
     if !labels.is_empty() {
-        report =
-            report.element(Level::NOTE.message(format!("while parsing: {}", labels.join(" -> "))));
+        let detail = format!("while parsing: {}", labels.join(" -> "));
+        details.push(detail.clone());
+        report = report.element(Level::NOTE.message(detail));
     }
 
     if !expected.is_empty() {
-        report = report
-            .element(Level::NOTE.message(format!("expected one of: {}", expected.join(", "))));
+        let detail = format!("expected one of: {}", expected.join(", "));
+        details.push(detail.clone());
+        report = report.element(Level::NOTE.message(detail));
     }
 
     ValidationError {
         message,
+        details,
         rendered: Renderer::styled().render(&[report]).to_string(),
         offset,
         end_offset,

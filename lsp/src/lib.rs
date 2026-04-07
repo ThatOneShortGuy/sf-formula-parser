@@ -124,13 +124,21 @@ pub fn handle_notification(notification: NotificationMessage) -> Result<Vec<Stri
 fn build_syntax_diagnostics(text: &str, source_name: &str) -> Vec<Diagnostic> {
     match validate_expression_detailed_with_source(text, source_name) {
         Ok(()) => Vec::new(),
-        Err(err) => vec![Diagnostic {
-            range: parser_error_range(&err),
-            severity: Some(1),
-            code: Some("E0001".to_string()),
-            source: Some(env!("CARGO_PKG_NAME").to_string()),
-            message: err.message,
-        }],
+        Err(err) => {
+            let message = if err.details.is_empty() {
+                err.message.clone()
+            } else {
+                format!("{}\n{}", err.message, err.details.join("\n"))
+            };
+
+            vec![Diagnostic {
+                range: parser_error_range(&err),
+                severity: Some(1),
+                code: Some("E0001".to_string()),
+                source: Some(env!("CARGO_PKG_NAME").to_string()),
+                message,
+            }]
+        }
     }
 }
 
