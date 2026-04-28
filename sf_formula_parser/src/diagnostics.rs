@@ -88,7 +88,7 @@ impl HintRule for MissingClosingParenRule {
                 id: "insert-missing-closing-paren",
                 message: "try adding a closing `)`".to_string(),
                 replacement: Some(")".to_string()),
-                span: Some(ctx.offset..ctx.end_offset),
+                span: Some(ctx.offset - 1..ctx.end_offset),
                 patch: Some(Patch::new(ctx.offset..ctx.end_offset, ")")),
                 priority: 90,
             });
