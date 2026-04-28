@@ -1,7 +1,7 @@
 pub mod parse;
 pub mod token;
 
-use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
+use annotate_snippets::{AnnotationKind, Level, Patch, Renderer, Snippet};
 use std::collections::HashSet;
 use std::fmt;
 use winnow::{
@@ -57,6 +57,29 @@ fn unexpected_token_message(input: &str, offset: usize) -> String {
         }
         None => "unexpected end of input".to_string(),
     }
+}
+
+fn derive_hint(input: &str, offset: usize, expected: &[String]) -> Option<String> {
+    let rest = input.get(offset..)?;
+    let token = rest.chars().next()?;
+    let expects_logical_or = expected.iter().any(|exp| exp == "`||`");
+
+    if token == '|' && (expects_logical_or || !rest.starts_with("||")) {
+        return Some("did you mean `||`?".to_string());
+    }
+
+    None
+}
+
+fn derive_patch(input: &str, offset: usize, end_offset: usize) -> Option<Patch<'static>> {
+    let rest = input.get(offset..)?;
+    let token = rest.chars().next()?;
+
+    if token == '|' && !rest.starts_with("||") {
+        return Some(Patch::new(offset..end_offset, "||"));
+    }
+
+    None
 }
 
 fn render_parse_error<'s>(
@@ -138,6 +161,20 @@ fn render_parse_error<'s>(
         report = report.element(Level::NOTE.message(detail));
     }
 
+    if let Some(patch) = derive_patch(input, offset, end_offset) {
+        report = report.element(
+            Snippet::source(input)
+                .path(source_name)
+                .line_start(1)
+                .patch(patch),
+        );
+    }
+
+    if let Some(hint) = derive_hint(input, offset, &expected) {
+        details.push(hint.clone());
+        report = report.element(Level::HELP.message(hint));
+    }
+
     ValidationError {
         message,
         details,
@@ -167,4 +204,25 @@ pub fn validate_expression_detailed_with_source(
 
 pub fn validate_expression(input: &str) -> Result<(), String> {
     validate_expression_detailed(input).map_err(|err| err.rendered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_expression_detailed;
+
+    #[test]
+    fn test_pipe_hint_has_patch_suggestion() {
+        let error = validate_expression_detailed("5 && (1 | 3)").err().unwrap();
+
+        assert!(
+            error.rendered.contains("did you mean `||` for logical OR?"),
+            "{}",
+            error.rendered
+        );
+        assert!(
+            error.rendered.contains("||") && error.rendered.contains("| 3"),
+            "{}",
+            error.rendered
+        );
+    }
 }
