@@ -25,6 +25,7 @@ trait HintRule {
 struct SinglePipeRule;
 struct LoneBangRule;
 struct MissingClosingParenRule;
+struct TrailingCommaRule;
 
 impl HintRule for SinglePipeRule {
     fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
@@ -95,8 +96,48 @@ impl HintRule for MissingClosingParenRule {
     }
 }
 
+impl HintRule for TrailingCommaRule {
+    fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
+        let rest = ctx.input.get(ctx.offset..)?;
+        let token = rest.chars().next()?;
+        if token != ')' {
+            return None;
+        }
+
+        let mut previous_non_ws = None;
+        for (idx, ch) in ctx.input[..ctx.offset].char_indices().rev() {
+            if !ch.is_whitespace() {
+                previous_non_ws = Some((idx, ch));
+                break;
+            }
+        }
+
+        let (comma_idx, prev_char) = previous_non_ws?;
+        if prev_char != ',' {
+            return None;
+        }
+
+        Some(Suggestion {
+            id: "remove-trailing-comma",
+            message: "remove trailing comma".to_string(),
+            replacement: Some(String::new()),
+            span: Some(comma_idx..comma_idx + prev_char.len_utf8()),
+            patch: Some(Patch::new(
+                comma_idx..comma_idx + prev_char.len_utf8(),
+                "",
+            )),
+            priority: 97,
+        })
+    }
+}
+
 pub fn derive_best_suggestion(ctx: &HintContext<'_>) -> Option<Suggestion> {
-    let rules: [&dyn HintRule; 3] = [&SinglePipeRule, &LoneBangRule, &MissingClosingParenRule];
+    let rules: [&dyn HintRule; 4] = [
+        &SinglePipeRule,
+        &TrailingCommaRule,
+        &LoneBangRule,
+        &MissingClosingParenRule,
+    ];
 
     rules
         .iter()
@@ -152,5 +193,12 @@ mod tests {
     fn test_valid_operators_do_not_show_patch_suggestions() {
         assert!(validate_expression_detailed("1 != 3").is_ok());
         assert!(validate_expression_detailed("True || False").is_ok());
+    }
+
+    #[test]
+    fn test_trailing_comma_suggests_removal() {
+        let error = validate_expression_detailed("AND(1,)").err().unwrap();
+
+        assert!(error.suggestion_ids.contains(&"remove-trailing-comma"));
     }
 }
