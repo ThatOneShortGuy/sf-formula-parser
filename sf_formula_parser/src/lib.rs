@@ -143,18 +143,22 @@ fn render_parse_error<'s>(
         labels: &labels,
     };
 
-    let suggestion = diagnostics::derive_best_suggestion(&hint_ctx);
+    let derived_suggestions = diagnostics::derive_suggestions(&hint_ctx);
 
-    if let Some(suggestion) = suggestion {
-        suggestion_ids.push(suggestion.id);
-        suggestions.push(ValidationSuggestion {
-            id: suggestion.id,
-            message: suggestion.message.clone(),
-            replacement: suggestion.replacement.clone(),
-            span: suggestion.span.clone(),
-        });
+    if !derived_suggestions.is_empty() {
+        for suggestion in &derived_suggestions {
+            suggestion_ids.push(suggestion.id);
+            suggestions.push(ValidationSuggestion {
+                id: suggestion.id,
+                message: suggestion.message.clone(),
+                replacement: suggestion.replacement.clone(),
+                span: suggestion.span.clone(),
+            });
+        }
 
-        if let Some(patch) = suggestion.patch {
+        let primary = &derived_suggestions[0];
+
+        if let Some(patch) = primary.patch.clone() {
             report = report.element(
                 Snippet::source(input)
                     .path(source_name)
@@ -163,8 +167,8 @@ fn render_parse_error<'s>(
             );
         }
 
-        details.push(suggestion.message.clone());
-        report = report.element(Level::HELP.message(suggestion.message));
+        details.push(primary.message.clone());
+        report = report.element(Level::HELP.message(primary.message.clone()));
     } else {
         if let Some(label) = labels
             .iter()

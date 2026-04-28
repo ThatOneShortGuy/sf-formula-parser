@@ -27,6 +27,7 @@ struct LoneBangRule;
 struct MissingClosingParenRule;
 struct TrailingCommaRule;
 struct MissingCommaBetweenArgsRule;
+struct ExtraEqualSignRule;
 
 impl HintRule for SinglePipeRule {
     fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
@@ -123,10 +124,7 @@ impl HintRule for TrailingCommaRule {
             message: "remove trailing comma".to_string(),
             replacement: Some(String::new()),
             span: Some(comma_idx..comma_idx + prev_char.len_utf8()),
-            patch: Some(Patch::new(
-                comma_idx..comma_idx + prev_char.len_utf8(),
-                "",
-            )),
+            patch: Some(Patch::new(comma_idx..comma_idx + prev_char.len_utf8(), "")),
             priority: 97,
         })
     }
@@ -171,6 +169,27 @@ impl HintRule for MissingCommaBetweenArgsRule {
     }
 }
 
+impl HintRule for ExtraEqualSignRule {
+    fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
+        let current_token = ctx.input.get(ctx.offset..ctx.end_offset)?;
+        let prev_token = ctx.input.get(ctx.offset - 1..ctx.offset)?;
+
+        if current_token != "=" || prev_token != "=" {
+            return None;
+        }
+
+        let insert_at = ctx.offset;
+        Some(Suggestion {
+            id: "remove-extra-equal-sign",
+            message: "remove extra '='".to_string(),
+            replacement: Some(String::new()),
+            span: Some(insert_at..insert_at + 1),
+            patch: Some(Patch::new(insert_at..insert_at + 1, "")),
+            priority: 96,
+        })
+    }
+}
+
 fn starts_argument(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '"' | '(' | '!' | '-')
 }
@@ -179,19 +198,23 @@ fn ends_argument(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | ')' | '"')
 }
 
-pub fn derive_best_suggestion(ctx: &HintContext<'_>) -> Option<Suggestion> {
-    let rules: [&dyn HintRule; 5] = [
+pub fn derive_suggestions(ctx: &HintContext<'_>) -> Vec<Suggestion> {
+    let rules: [&dyn HintRule; _] = [
         &SinglePipeRule,
         &TrailingCommaRule,
         &MissingCommaBetweenArgsRule,
         &LoneBangRule,
         &MissingClosingParenRule,
+        &ExtraEqualSignRule,
     ];
 
-    rules
+    let mut suggestions = rules
         .iter()
         .filter_map(|rule| rule.apply(ctx))
-        .max_by_key(|suggestion| suggestion.priority)
+        .collect::<Vec<_>>();
+
+    suggestions.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.id.cmp(b.id)));
+    suggestions
 }
 
 #[cfg(test)]
@@ -266,6 +289,15 @@ mod tests {
 
     #[test]
     fn test_missing_comma_not_suggested_when_comma_exists() {
-        assert!(validate_expression_detailed("AND(\n  Amount,\n  SBQQ__Uncalculated__c\n)").is_ok());
+        assert!(
+            validate_expression_detailed("AND(\n  Amount,\n  SBQQ__Uncalculated__c\n)").is_ok()
+        );
+    }
+
+    #[test]
+    fn test_extra_equal() {
+        let error = validate_expression_detailed("1 === True").err().unwrap();
+
+        assert!(error.suggestion_ids.contains(&"remove-extra-equal-sign"))
     }
 }
