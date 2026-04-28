@@ -1,4 +1,5 @@
 use annotate_snippets::Patch;
+use std::ops::Range;
 
 pub struct HintContext<'a> {
     pub input: &'a str,
@@ -11,6 +12,8 @@ pub struct HintContext<'a> {
 pub struct Suggestion {
     pub id: &'static str,
     pub message: String,
+    pub replacement: Option<String>,
+    pub span: Option<Range<usize>>,
     pub patch: Option<Patch<'static>>,
     pub priority: u8,
 }
@@ -36,7 +39,9 @@ impl HintRule for SinglePipeRule {
         if token == '|' && in_expression && (expects_logical_or || !rest.starts_with("||")) {
             return Some(Suggestion {
                 id: "replace-single-pipe-with-double-pipe",
-                message: "did you mean `||` for logical OR?".to_string(),
+                message: "did you mean `||`?".to_string(),
+                replacement: Some("||".to_string()),
+                span: Some(ctx.offset..ctx.end_offset),
                 patch: Some(Patch::new(ctx.offset..ctx.end_offset, "||")),
                 priority: 100,
             });
@@ -55,7 +60,9 @@ impl HintRule for LoneBangRule {
         if token == '!' && (expects_not_equal || !rest.starts_with("!=")) {
             return Some(Suggestion {
                 id: "replace-lone-bang-with-not-equal",
-                message: "did you mean `!=` for not equal?".to_string(),
+                message: "did you mean `!=`?".to_string(),
+                replacement: Some("!=".to_string()),
+                span: Some(ctx.offset..ctx.end_offset),
                 patch: Some(Patch::new(ctx.offset..ctx.end_offset, "!=")),
                 priority: 95,
             });
@@ -77,6 +84,8 @@ impl HintRule for MissingClosingParenRule {
             return Some(Suggestion {
                 id: "insert-missing-closing-paren",
                 message: "try adding a closing `)`".to_string(),
+                replacement: Some(")".to_string()),
+                span: Some(ctx.offset..ctx.end_offset),
                 patch: Some(Patch::new(ctx.offset..ctx.end_offset, ")")),
                 priority: 90,
             });

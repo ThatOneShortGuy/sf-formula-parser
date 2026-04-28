@@ -6,6 +6,7 @@ mod diagnostics;
 use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
 use std::collections::HashSet;
 use std::fmt;
+use std::ops::Range;
 use winnow::{
     LocatingSlice, Parser,
     error::{ContextError, ParseError, StrContext, StrContextValue},
@@ -16,6 +17,7 @@ pub struct ValidationError {
     pub message: String,
     pub details: Vec<String>,
     pub suggestion_ids: Vec<&'static str>,
+    pub suggestions: Vec<ValidationSuggestion>,
     pub rendered: String,
     pub offset: usize,
     pub end_offset: usize,
@@ -23,6 +25,14 @@ pub struct ValidationError {
     pub column: usize,
     pub end_line: usize,
     pub end_column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationSuggestion {
+    pub id: &'static str,
+    pub message: String,
+    pub replacement: Option<String>,
+    pub span: Option<Range<usize>>,
 }
 
 impl fmt::Display for ValidationError {
@@ -102,6 +112,7 @@ fn render_parse_error<'s>(
     let message = unexpected_token_message(input, offset);
     let mut details = Vec::new();
     let mut suggestion_ids = Vec::new();
+    let mut suggestions = Vec::new();
 
     if let Some(cause) = err.inner().cause() {
         let cause = cause.to_string();
@@ -136,6 +147,12 @@ fn render_parse_error<'s>(
 
     if let Some(suggestion) = suggestion {
         suggestion_ids.push(suggestion.id);
+        suggestions.push(ValidationSuggestion {
+            id: suggestion.id,
+            message: suggestion.message.clone(),
+            replacement: suggestion.replacement.clone(),
+            span: suggestion.span.clone(),
+        });
 
         if let Some(patch) = suggestion.patch {
             report = report.element(
@@ -170,6 +187,7 @@ fn render_parse_error<'s>(
         message,
         details,
         suggestion_ids,
+        suggestions,
         rendered: Renderer::styled().render(&[report]).to_string(),
         offset,
         end_offset,
