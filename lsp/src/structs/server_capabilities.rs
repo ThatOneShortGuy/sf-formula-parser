@@ -8,6 +8,7 @@ pub struct ServerCapabilities {
     position_encoding: PositionEncodingKind,
     text_document_sync: Option<TextDocumentSyncOptions>,
     completion_provider: Option<CompletionOptions>,
+    code_action_provider: Option<bool>,
 }
 
 impl Default for ServerCapabilities {
@@ -21,6 +22,7 @@ impl Default for ServerCapabilities {
             completion_provider: Some(CompletionOptions {
                 trigger_characters: Some(vec!["(".to_string()]),
             }),
+            code_action_provider: Some(true),
         }
     }
 }

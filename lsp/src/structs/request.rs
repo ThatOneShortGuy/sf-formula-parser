@@ -112,6 +112,7 @@ macro_rules! lsp_request_methods {
 lsp_request_methods! {
     Initialize => "initialize"(InitializeParams),
     Completion => "textDocument/completion"(CompletionParams),
+    CodeAction => "textDocument/codeAction"(CodeActionParams),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +125,34 @@ pub struct CompletionParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextDocumentIdentifier {
     pub uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+    pub context: CodeActionContext,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeActionContext {
+    pub diagnostics: Vec<CodeActionDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeActionDiagnostic {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

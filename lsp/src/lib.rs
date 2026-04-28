@@ -15,10 +15,7 @@ use tracing::{debug, warn};
 
 use crate::structs::{
     initialize::{InitializeResult, ServerInfo},
-    request::{
-        CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
-        NotificationMessage, RequestMessage, RequestMethod, ResponseError, ResponsePayload,
-    },
+    request::*,
     server_capabilities::ServerCapabilities,
 };
 
@@ -131,15 +128,61 @@ fn build_syntax_diagnostics(text: &str, source_name: &str) -> Vec<Diagnostic> {
                 format!("{}\n{}", err.message, err.details.join("\n"))
             };
 
+            let suggestions = err
+                .suggestions
+                .iter()
+                .filter_map(|suggestion| {
+                    let replacement = suggestion.replacement.clone()?;
+                    let span = suggestion.span.clone()?;
+
+                    let (line, character) = offset_to_position(text, span.start);
+                    let (end_line, end_character) = offset_to_position(text, span.end);
+
+                    Some(DiagnosticSuggestionData {
+                        id: suggestion.id.to_string(),
+                        title: suggestion.message.clone(),
+                        replacement,
+                        range: Range {
+                            start: Position { line, character },
+                            end: Position {
+                                line: end_line,
+                                character: end_character,
+                            },
+                        },
+                    })
+                })
+                .collect::<Vec<_>>();
+
             vec![Diagnostic {
                 range: parser_error_range(&err),
                 severity: Some(1),
                 code: Some("E0001".to_string()),
                 source: Some(env!("CARGO_PKG_NAME").to_string()),
                 message,
+                data: (!suggestions.is_empty())
+                    .then_some(serde_json::to_value(DiagnosticData { suggestions }).unwrap()),
             }]
         }
     }
+}
+
+fn offset_to_position(input: &str, offset: usize) -> (usize, usize) {
+    let clamped = offset.min(input.len());
+    let mut line = 0usize;
+    let mut line_start = 0usize;
+
+    for (idx, ch) in input.char_indices() {
+        if idx >= clamped {
+            break;
+        }
+
+        if ch == '\n' {
+            line += 1;
+            line_start = idx + ch.len_utf8();
+        }
+    }
+
+    (line, clamped.saturating_sub(line_start))
 }
 
 fn parser_error_range(err: &ValidationError) -> Range {
@@ -189,6 +232,13 @@ pub fn handle_request(request: RequestMessage) -> Result<String> {
             params,
         } => request.reply_with(ResponsePayload::success(serde_json::to_value(
             suggest_function_completions(params),
+        )?)),
+
+        RequestMethod::CodeAction {
+            method: _method,
+            params,
+        } => request.reply_with(ResponsePayload::success(serde_json::to_value(
+            suggest_code_actions(params),
         )?)),
 
         RequestMethod::Unknown { method, params } => {
@@ -325,6 +375,44 @@ struct Diagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticSuggestionData {
+    id: String,
+    title: String,
+    replacement: String,
+    range: Range,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticData {
+    suggestions: Vec<DiagnosticSuggestionData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodeAction {
+    title: String,
+    kind: String,
+    diagnostics: Vec<crate::structs::request::CodeActionDiagnostic>,
+    edit: WorkspaceEdit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WorkspaceEdit {
+    changes: HashMap<String, Vec<TextEdit>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TextEdit {
+    range: Range,
+    new_text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +453,40 @@ impl CompletionItem {
             insert_text: Some(format!("{name}()")),
         }
     }
+}
+
+fn suggest_code_actions(params: &CodeActionParams) -> Vec<CodeAction> {
+    let mut actions = Vec::new();
+
+    for diagnostic in &params.context.diagnostics {
+        let Some(data) = &diagnostic.data else {
+            continue;
+        };
+
+        let Ok(data) = serde_json::from_value::<DiagnosticData>(data.clone()) else {
+            continue;
+        };
+
+        for suggestion in data.suggestions {
+            let mut changes = HashMap::new();
+            changes.insert(
+                params.text_document.uri.clone(),
+                vec![TextEdit {
+                    range: suggestion.range.clone(),
+                    new_text: suggestion.replacement,
+                }],
+            );
+
+            actions.push(CodeAction {
+                title: suggestion.title,
+                kind: "quickfix".to_string(),
+                diagnostics: vec![diagnostic.clone()],
+                edit: WorkspaceEdit { changes },
+            });
+        }
+    }
+
+    actions
 }
 
 #[cfg(test)]
@@ -454,5 +576,53 @@ mod tests {
                 .as_deref()
                 .is_some_and(|documentation| documentation.contains("nearest number"))
         );
+    }
+
+    #[test]
+    fn test_code_action_returns_quickfix_from_diagnostic_suggestion() {
+        let uri = "file:///code-action-test.sff".to_string();
+        let diagnostics = build_syntax_diagnostics("5 && (1 | 3)", &uri);
+        let diagnostic = diagnostics.first().expect("expected one diagnostic");
+
+        let params = CodeActionParams {
+            text_document: crate::structs::request::TextDocumentIdentifier { uri: uri.clone() },
+            range: crate::structs::request::Range {
+                start: crate::structs::request::Position {
+                    line: diagnostic.range.start.line,
+                    character: diagnostic.range.start.character,
+                },
+                end: crate::structs::request::Position {
+                    line: diagnostic.range.end.line,
+                    character: diagnostic.range.end.character,
+                },
+            },
+            context: crate::structs::request::CodeActionContext {
+                diagnostics: vec![crate::structs::request::CodeActionDiagnostic {
+                    range: crate::structs::request::Range {
+                        start: crate::structs::request::Position {
+                            line: diagnostic.range.start.line,
+                            character: diagnostic.range.start.character,
+                        },
+                        end: crate::structs::request::Position {
+                            line: diagnostic.range.end.line,
+                            character: diagnostic.range.end.character,
+                        },
+                    },
+                    code: diagnostic.code.clone(),
+                    data: diagnostic.data.clone(),
+                }],
+            },
+        };
+
+        let actions = suggest_code_actions(&params);
+        assert!(!actions.is_empty());
+        assert_eq!(actions[0].kind, "quickfix");
+        assert!(actions[0].title.contains("did you mean `||`"));
+        let edit = actions[0].edit.changes.get(&uri).expect("expected edits");
+        assert_eq!(edit[0].new_text, "||");
+
+        let encoded = serde_json::to_value(&actions[0]).expect("code action should serialize");
+        let new_text = &encoded["edit"]["changes"][&uri][0]["newText"];
+        assert_eq!(new_text, "||");
     }
 }
