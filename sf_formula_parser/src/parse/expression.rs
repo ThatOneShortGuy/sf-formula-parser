@@ -1,6 +1,6 @@
 use winnow::{
     LocatingSlice, ModalResult, Parser,
-    combinator::{Infix, alt, delimited, expression, fail, trace},
+    combinator::{Infix, alt, cut_err, delimited, expression, fail, trace},
     error::{StrContext, StrContextValue},
 };
 
@@ -19,7 +19,7 @@ fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResu
             parse_function.map(|(f, r)| Expression::function(f, r)),
             parse_literal.map(|(l, r)| Expression::literal(l, r)),
             parse_field_reference.map(|(f, r)| Expression::field_ref(f, r)),
-            delimited(spaced("("), parse_expression, spaced(")")),
+            delimited(spaced("("), cut_err(parse_expression), cut_err(spaced(")"))),
             fail.context(StrContext::Label("primary expression"))
                 .context(StrContext::Expected(StrContextValue::Description(
                     "function",
@@ -114,13 +114,7 @@ pub fn parse_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<E
         "parse_expression",
         expression(parse_unary_expression)
             .infix(parser)
-            .context(StrContext::Label("expression"))
-            .context(StrContext::Expected(StrContextValue::Description(
-                "unary expression",
-            )))
-            .context(StrContext::Expected(StrContextValue::Description(
-                "binary expression",
-            ))),
+            .context(StrContext::Label("expression")),
     )
     .parse_next(input)
 }
@@ -192,6 +186,23 @@ mod tests {
                     Expression::literal(42, span_of(&test_str, "42"))
                 )
             )
+        );
+    }
+
+    #[test]
+    fn test_bad_op() {
+        let test_str = LocatingSlice::new("1 | 3");
+        let error = parse_expression.parse(test_str).err().unwrap();
+        assert_eq!(error.char_span(), span_of(&test_str, "|"));
+
+        let test_str = LocatingSlice::new("5 && (1 | 3)");
+        let error = parse_expression.parse(test_str).err().unwrap();
+        assert_eq!(error.char_span(), span_of(&test_str, "|"));
+        assert!(!error.to_string().contains("unary expression"), "{}", error);
+        assert!(
+            !error.to_string().contains("binary expression"),
+            "{}",
+            error
         );
     }
 
