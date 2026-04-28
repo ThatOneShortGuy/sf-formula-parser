@@ -19,7 +19,12 @@ fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResu
             parse_function.map(|(f, r)| Expression::function(f, r)),
             parse_literal.map(|(l, r)| Expression::literal(l, r)),
             parse_field_reference.map(|(f, r)| Expression::field_ref(f, r)),
-            delimited(spaced("("), cut_err(parse_expression), cut_err(spaced(")"))),
+            delimited(
+                spaced("(").context(StrContext::Label("expr.parenthesized.open")),
+                cut_err(parse_expression.context(StrContext::Label("expr.parenthesized.inner"))),
+                cut_err(spaced(")").context(StrContext::Label("expr.parenthesized.close"))),
+            )
+            .context(StrContext::Label("expr.parenthesized")),
             fail.context(StrContext::Label("primary expression"))
                 .context(StrContext::Expected(StrContextValue::Description(
                     "function",
@@ -79,7 +84,8 @@ pub fn parse_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<E
             ops!(Divide, 9, "/"),
             ops!(Add, 8, "+"),
             ops!(Subtract, 8, "-"),
-        )),
+        ))
+        .context(StrContext::Label("expr.operator.arithmetic")),
         alt((
             ops!(Equal, 7, "==", "="),
             ops!(NotEqual, 7, "!=", "<>"),
@@ -87,12 +93,14 @@ pub fn parse_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<E
             ops!(LessThan, 7, "<"),
             ops!(GreaterThanOrEqual, 7, ">="),
             ops!(GreaterThan, 7, ">"),
-        )),
+        ))
+        .context(StrContext::Label("expr.operator.comparison")),
         alt((
             ops!(And, 6, "&&"),
             ops!(Or, 6, "||"),
             ops!(Concatenate, 5, "&"),
-        )),
+        ))
+        .context(StrContext::Label("expr.operator.logical_or_concat")),
         fail.context(StrContext::Label("binary expression"))
             .context(StrContext::Expected(StrContextValue::Description(
                 "a valid binary operator",
