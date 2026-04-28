@@ -26,6 +26,7 @@ struct SinglePipeRule;
 struct LoneBangRule;
 struct MissingClosingParenRule;
 struct TrailingCommaRule;
+struct MissingCommaBetweenArgsRule;
 
 impl HintRule for SinglePipeRule {
     fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
@@ -131,10 +132,58 @@ impl HintRule for TrailingCommaRule {
     }
 }
 
+impl HintRule for MissingCommaBetweenArgsRule {
+    fn apply(&self, ctx: &HintContext<'_>) -> Option<Suggestion> {
+        let rest = ctx.input.get(ctx.offset..)?;
+        let token = rest.chars().next()?;
+        let expects_close_paren = ctx.expected.iter().any(|exp| exp == "`)`");
+
+        if !expects_close_paren || !starts_argument(token) {
+            return None;
+        }
+
+        let mut previous_non_ws = None;
+        for (idx, ch) in ctx.input[..ctx.offset].char_indices().rev() {
+            if !ch.is_whitespace() {
+                previous_non_ws = Some((idx, ch));
+                break;
+            }
+        }
+
+        let (prev_idx, prev_char) = previous_non_ws?;
+        if prev_char == ',' || !ends_argument(prev_char) {
+            return None;
+        }
+
+        if !ctx.input[prev_idx + prev_char.len_utf8()..ctx.offset].contains('\n') {
+            return None;
+        }
+
+        let insert_at = prev_idx + prev_char.len_utf8();
+        Some(Suggestion {
+            id: "insert-missing-comma-between-args",
+            message: "did you mean to add a comma between arguments?".to_string(),
+            replacement: Some(",".to_string()),
+            span: Some(insert_at..insert_at),
+            patch: Some(Patch::new(insert_at..insert_at, ",")),
+            priority: 96,
+        })
+    }
+}
+
+fn starts_argument(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '"' | '(' | '!' | '-')
+}
+
+fn ends_argument(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | ')' | '"')
+}
+
 pub fn derive_best_suggestion(ctx: &HintContext<'_>) -> Option<Suggestion> {
-    let rules: [&dyn HintRule; 4] = [
+    let rules: [&dyn HintRule; 5] = [
         &SinglePipeRule,
         &TrailingCommaRule,
+        &MissingCommaBetweenArgsRule,
         &LoneBangRule,
         &MissingClosingParenRule,
     ];
@@ -200,5 +249,23 @@ mod tests {
         let error = validate_expression_detailed("AND(1,)").err().unwrap();
 
         assert!(error.suggestion_ids.contains(&"remove-trailing-comma"));
+    }
+
+    #[test]
+    fn test_missing_comma_between_multiline_args_suggested() {
+        let error = validate_expression_detailed("AND(\n  Amount\n  SBQQ__Uncalculated__c\n)")
+            .err()
+            .unwrap();
+
+        assert!(
+            error
+                .suggestion_ids
+                .contains(&"insert-missing-comma-between-args")
+        );
+    }
+
+    #[test]
+    fn test_missing_comma_not_suggested_when_comma_exists() {
+        assert!(validate_expression_detailed("AND(\n  Amount,\n  SBQQ__Uncalculated__c\n)").is_ok());
     }
 }
