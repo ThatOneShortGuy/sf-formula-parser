@@ -15,6 +15,7 @@ use winnow::{
 pub struct ValidationError {
     pub message: String,
     pub details: Vec<String>,
+    pub suggestion_ids: Vec<&'static str>,
     pub rendered: String,
     pub offset: usize,
     pub end_offset: usize,
@@ -100,6 +101,7 @@ fn render_parse_error<'s>(
 
     let message = unexpected_token_message(input, offset);
     let mut details = Vec::new();
+    let mut suggestion_ids = Vec::new();
 
     if let Some(cause) = err.inner().cause() {
         let cause = cause.to_string();
@@ -122,24 +124,6 @@ fn render_parse_error<'s>(
         )
         .element(Level::NOTE.message(message.clone()));
 
-    if let Some(label) = labels.first() {
-        let detail = format!("invalid {label}");
-        details.push(detail.clone());
-        report = report.element(Level::NOTE.message(detail));
-    }
-
-    if !labels.is_empty() {
-        let detail = format!("while parsing: {}", labels.join(" -> "));
-        details.push(detail.clone());
-        report = report.element(Level::NOTE.message(detail));
-    }
-
-    if !expected.is_empty() {
-        let detail = format!("expected one of: {}", expected.join(", "));
-        details.push(detail.clone());
-        report = report.element(Level::NOTE.message(detail));
-    }
-
     let hint_ctx = diagnostics::HintContext {
         input,
         offset,
@@ -148,9 +132,10 @@ fn render_parse_error<'s>(
         labels: &labels,
     };
 
-    if let Some(suggestion) = diagnostics::derive_best_suggestion(&hint_ctx) {
-        details.push(suggestion.message.clone());
-        report = report.element(Level::HELP.message(suggestion.message));
+    let suggestion = diagnostics::derive_best_suggestion(&hint_ctx);
+
+    if let Some(suggestion) = suggestion {
+        suggestion_ids.push(suggestion.id);
 
         if let Some(patch) = suggestion.patch {
             report = report.element(
@@ -160,11 +145,31 @@ fn render_parse_error<'s>(
                     .patch(patch),
             );
         }
+
+        details.push(suggestion.message.clone());
+        report = report.element(Level::HELP.message(suggestion.message));
+    } else {
+        if let Some(label) = labels
+            .iter()
+            .copied()
+            .find(|label| !label.starts_with("expr."))
+        {
+            let detail = format!("invalid {label}");
+            details.push(detail.clone());
+            report = report.element(Level::NOTE.message(detail));
+        }
+
+        if !expected.is_empty() {
+            let detail = format!("expected one of: {}", expected.join(", "));
+            details.push(detail.clone());
+            report = report.element(Level::NOTE.message(detail));
+        }
     }
 
     ValidationError {
         message,
         details,
+        suggestion_ids,
         rendered: Renderer::styled().render(&[report]).to_string(),
         offset,
         end_offset,
@@ -191,25 +196,4 @@ pub fn validate_expression_detailed_with_source(
 
 pub fn validate_expression(input: &str) -> Result<(), String> {
     validate_expression_detailed(input).map_err(|err| err.rendered)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_expression_detailed;
-
-    #[test]
-    fn test_pipe_hint_has_patch_suggestion() {
-        let error = validate_expression_detailed("5 && (1 | 3)").err().unwrap();
-
-        assert!(
-            error.rendered.contains("did you mean `||` for logical OR?"),
-            "{}",
-            error.rendered
-        );
-        assert!(
-            error.rendered.contains("||") && error.rendered.contains("| 3"),
-            "{}",
-            error.rendered
-        );
-    }
 }

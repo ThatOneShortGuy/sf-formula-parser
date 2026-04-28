@@ -22,7 +22,11 @@ fn parse_primary_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResu
             delimited(
                 spaced("(").context(StrContext::Label("expr.parenthesized.open")),
                 cut_err(parse_expression.context(StrContext::Label("expr.parenthesized.inner"))),
-                cut_err(spaced(")").context(StrContext::Label("expr.parenthesized.close"))),
+                cut_err(
+                    spaced(")")
+                        .context(StrContext::Label("expr.parenthesized.close"))
+                        .context(StrContext::Expected(StrContextValue::CharLiteral(')'))),
+                ),
             )
             .context(StrContext::Label("expr.parenthesized")),
             fail.context(StrContext::Label("primary expression"))
