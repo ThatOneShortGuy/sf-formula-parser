@@ -21,29 +21,14 @@ return {
     "ThatOneShortGuy/sf_formula.nvim",
     ft = { "sff" },
     build = function()
-      if vim.fn.executable("sf_formula_lsp") == 1 then
-        return
-      end
-
-      local cmd = {
-        "cargo",
-        "install",
-        "--locked",
-        "--git",
-        "https://github.com/ThatOneShortGuy/sf-formula-parser",
-        "sf_formula_lsp",
-      }
-
-      local result = vim.system(cmd, { text = true }):wait()
-      if result.code ~= 0 then
-        error(result.stderr ~= "" and result.stderr or result.stdout)
-      end
+      require("sf_formula.build").ensure_lsp()
     end,
   },
 }
 ```
 
-The build hook above installs `sf_formula_lsp` automatically during `:Lazy sync` if it is missing.
+The build hook above checks upstream git `HEAD` during `:Lazy sync` and installs/reinstalls `sf_formula_lsp` when missing or out of date.
+It installs to `stdpath("data") .. "/sf_formula_nvim/bin"`, so the binary does not need to be on your shell `PATH`.
 
 If you want to use a custom binary location instead, set:
 
