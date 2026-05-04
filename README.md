@@ -28,6 +28,7 @@ return {
 ```
 
 The build hook above checks upstream git `HEAD` during `:Lazy sync` and installs/reinstalls `sf_formula_lsp` when missing or out of date.
+If the `HEAD` lookup fails, it falls back to a forced reinstall from the default branch.
 It installs to `stdpath("data") .. "/sf_formula_nvim/bin"`, so the binary does not need to be on your shell `PATH`.
 
 If you want to use a custom binary location instead, set:
