@@ -16,7 +16,7 @@ pub fn setup_logging_to_stderr_and_file(
     #[cfg(debug_assertions)]
     let file_log_level = filter::LevelFilter::DEBUG;
     #[cfg(not(debug_assertions))]
-    let file_log_level = filter::LevelFilter::INFO;
+    let file_log_level = filter::LevelFilter::ERROR;
     let stderr_layer = tracing_subscriber::fmt::layer().with_writer(io::stderr);
 
     let file_layer = tracing_subscriber::fmt::layer().with_writer(
