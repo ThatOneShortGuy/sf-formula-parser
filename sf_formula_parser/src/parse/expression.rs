@@ -133,7 +133,7 @@ pub fn parse_expression<'s>(input: &mut LocatingSlice<&'s str>) -> ModalResult<E
 
 #[cfg(test)]
 mod tests {
-    use crate::token::{BinaryExpr, FieldReference, LiteralValue, UnaryExpr};
+    use crate::token::{BinaryExpr, ExpressionData, FieldReference, LiteralValue, UnaryExpr};
 
     use super::*;
 
@@ -342,5 +342,17 @@ mod tests {
         );
 
         parse_expression.parse(test_str).unwrap();
+    }
+
+    #[test]
+    fn test_parsing_order() {
+        let test_str = LocatingSlice::new("BR() + 'Floor: ' + Floor__c");
+
+        let parsed = parse_expression.parse(test_str).unwrap();
+
+        let ExpressionData::BinaryExpr(expression) = parsed.data else {
+            panic!("expected a binary expression");
+        };
+        assert_eq!(expression.2, Expression::field_ref("Floor__c", 19..27));
     }
 }

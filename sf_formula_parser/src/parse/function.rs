@@ -82,8 +82,12 @@ pub fn parse_function<'s>(
 ) -> ModalResult<(Function<'s>, Range<usize>)> {
     trace(
         "parse_function",
-        (parse_function_name, cut_err(parse_function_args))
-            .map(|((fname, _), args)| Function::new(fname, args)),
+        (
+            parse_function_name,
+            peek(spaced("(")),
+            cut_err(parse_function_args),
+        )
+            .map(|((fname, _), _, args)| Function::new(fname, args)),
     )
     .with_span()
     .parse_next(input)
