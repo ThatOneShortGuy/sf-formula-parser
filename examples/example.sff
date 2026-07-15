@@ -1,0 +1,5 @@
+IF(
+  ISBLANK(Account.Name),
+  "No account",
+  UPPER(Account.Name) & " (" & TEXT(Account.NumberOfEmployees) & ")"
+)
